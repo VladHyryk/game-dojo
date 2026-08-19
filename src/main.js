@@ -1,6 +1,18 @@
 import { GAME } from './config.js';
+import { TUNING } from './tuning.js';
 import { start, setScoreListener, getState, resetGame } from './game.js';
 import { topScores, submitScore, dbReady } from './db.js';
+
+// Підставляємо тексти з tuning.js у сторінку
+const t = TUNING.texts;
+document.title = t.title;
+document.getElementById('title').textContent = t.title;
+document.getElementById('controls-hint').textContent = t.controlsHint;
+document.getElementById('score-label').textContent = t.scoreLabel;
+document.getElementById('board-title').textContent = t.boardTitle;
+document.getElementById('name').placeholder = t.namePlaceholder;
+document.getElementById('save').textContent = t.saveButton;
+document.getElementById('reset').textContent = t.resetButton;
 
 const canvas = document.getElementById('game');
 canvas.width = GAME.width;
@@ -25,7 +37,7 @@ async function refreshBoard() {
   }
   const rows = await topScores();
   if (!rows.length) {
-    boardEl.innerHTML = '<li class="empty">Ще нікого. Будь першим.</li>';
+    boardEl.innerHTML = `<li class="empty">${escapeHtml(t.emptyBoard)}</li>`;
     return;
   }
   boardEl.innerHTML = rows

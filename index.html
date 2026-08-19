@@ -87,16 +87,16 @@
 <body>
 
 <div class="stage">
-  <h1>Game Dojo — болванка</h1>
+  <h1 id="title">Game Dojo — болванка</h1>
   <canvas id="game" tabindex="0"></canvas>
   <div class="hud">
-    <span>WASD / стрілки</span>
-    <span>Очки: <b id="score">0</b></span>
+    <span id="controls-hint">WASD / стрілки</span>
+    <span><span id="score-label">Очки:</span> <b id="score">0</b></span>
   </div>
 </div>
 
 <aside>
-  <h1>Топ-10</h1>
+  <h1 id="board-title">Топ-10</h1>
   <ol id="board"><li class="empty">Завантаження…</li></ol>
   <input id="name" maxlength="24" placeholder="Твоє імʼя" aria-label="Твоє імʼя">
   <button id="save">Зберегти результат</button>

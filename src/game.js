@@ -1,4 +1,8 @@
 import { GAME } from './config.js';
+import { TUNING } from './tuning.js';
+
+const T = TUNING;
+const TILE = T.field.tile;
 
 // ── Інпут ─────────────────────────────────────────────────────────────
 const keys = new Set();
@@ -12,16 +16,16 @@ addEventListener('blur', () => keys.clear());
 const held = (...names) => names.some((n) => keys.has(n));
 
 // ── Рівень ────────────────────────────────────────────────────────────
-// 0 — підлога, 1 — стіна. Заміниш на свої масиви / генерацію кімнат.
+// 0 — підлога, 1 — стіна.
 const LEVEL = [];
 {
-  const cols = Math.ceil(GAME.width / GAME.tile);
-  const rows = Math.ceil(GAME.height / GAME.tile);
+  const cols = Math.ceil(GAME.width / TILE);
+  const rows = Math.ceil(GAME.height / TILE);
   for (let y = 0; y < rows; y++) {
     const row = [];
     for (let x = 0; x < cols; x++) {
       const edge = x === 0 || y === 0 || x === cols - 1 || y === rows - 1;
-      const blob = (x % 7 === 3 && y % 5 === 2);
+      const blob = (x % T.field.wallPatternX === 3 && y % T.field.wallPatternY === 2);
       row.push(edge || blob ? 1 : 0);
     }
     LEVEL.push(row);
@@ -29,12 +33,11 @@ const LEVEL = [];
 }
 
 const solidAt = (px, py) => {
-  const c = Math.floor(px / GAME.tile);
-  const r = Math.floor(py / GAME.tile);
+  const c = Math.floor(px / TILE);
+  const r = Math.floor(py / TILE);
   return LEVEL[r]?.[c] === 1;
 };
 
-// Рух по осях окремо — так гравець ковзає вздовж стіни, а не залипає.
 function moveAxis(entity, dx, dy) {
   const nx = entity.x + dx;
   const ny = entity.y + dy;
@@ -51,7 +54,6 @@ function moveAxis(entity, dx, dy) {
 }
 
 // ── Спрайтова анімація ────────────────────────────────────────────────
-// Під твій пайплайн: PNG-сітка кадрів. Поки картинки немає — малює прямокутник.
 class SpriteSheet {
   constructor(src, frameW, frameH) {
     this.img = new Image();
@@ -77,22 +79,25 @@ const heroSheet = new SpriteSheet('assets/hero.png', 32, 32);
 
 // ── Стан ──────────────────────────────────────────────────────────────
 const player = {
-  x: GAME.tile * 2, y: GAME.tile * 2, w: 24, h: 24,
-  speed: 190, dir: 0, frame: 0, frameTimer: 0, moving: false,
+  x: TILE * 2, y: TILE * 2,
+  w: T.player.size, h: T.player.size,
+  speed: T.player.speed,
+  dir: 0, frame: 0, frameTimer: 0, moving: false,
 };
 
 const pickups = [];
 function spawnPickup() {
+  const s = T.pickups.size;
   for (let tries = 0; tries < 200; tries++) {
     const x = Math.random() * (GAME.width - 40) + 20;
     const y = Math.random() * (GAME.height - 40) + 20;
-    if (!solidAt(x, y) && !solidAt(x + 12, y + 12)) {
-      pickups.push({ x, y, w: 12, h: 12, t: 0 });
+    if (!solidAt(x, y) && !solidAt(x + s, y + s)) {
+      pickups.push({ x, y, w: s, h: s, t: 0 });
       return;
     }
   }
 }
-for (let i = 0; i < 6; i++) spawnPickup();
+for (let i = 0; i < T.pickups.count; i++) spawnPickup();
 
 const state = { score: 0, time: 0, running: true };
 
@@ -118,10 +123,12 @@ function update(dt) {
   moveAxis(player, dx * player.speed * dt, 0);
   moveAxis(player, 0, dy * player.speed * dt);
 
-  // анімація: 8 кадрів/сек поки рухається
   if (player.moving) {
     player.frameTimer += dt;
-    if (player.frameTimer > 0.125) { player.frameTimer = 0; player.frame = (player.frame + 1) % 4; }
+    if (player.frameTimer > 1 / T.player.animationSpeed) {
+      player.frameTimer = 0;
+      player.frame = (player.frame + 1) % 4;
+    }
   } else {
     player.frame = 0;
   }
@@ -134,7 +141,7 @@ function update(dt) {
       player.y < p.y + p.h && player.y + player.h > p.y;
     if (hit) {
       pickups.splice(i, 1);
-      state.score += 10;
+      state.score += T.pickups.scoreValue;
       spawnPickup();
       onScoreChange?.(state.score);
     }
@@ -143,30 +150,30 @@ function update(dt) {
 
 // ── Малювання ─────────────────────────────────────────────────────────
 function render(ctx) {
-  ctx.fillStyle = '#12111a';
+  ctx.fillStyle = T.colors.background;
   ctx.fillRect(0, 0, GAME.width, GAME.height);
 
   for (let r = 0; r < LEVEL.length; r++) {
     for (let c = 0; c < LEVEL[r].length; c++) {
       if (LEVEL[r][c] !== 1) continue;
-      ctx.fillStyle = '#2b2840';
-      ctx.fillRect(c * GAME.tile, r * GAME.tile, GAME.tile, GAME.tile);
-      ctx.fillStyle = '#39355a';
-      ctx.fillRect(c * GAME.tile, r * GAME.tile, GAME.tile, 3);
+      ctx.fillStyle = T.colors.wall;
+      ctx.fillRect(c * TILE, r * TILE, TILE, TILE);
+      ctx.fillStyle = T.colors.wallTop;
+      ctx.fillRect(c * TILE, r * TILE, TILE, 3);
     }
   }
 
   for (const p of pickups) {
-    const bob = Math.sin(p.t * 5) * 2;
-    ctx.fillStyle = '#ffd166';
+    const bob = Math.sin(p.t * T.pickups.bobSpeed) * T.pickups.bobHeight;
+    ctx.fillStyle = T.colors.pickup;
     ctx.fillRect(p.x, p.y + bob, p.w, p.h);
   }
 
   const drew = heroSheet.draw(ctx, player.frame, player.dir, player.x, player.y, player.w, player.h);
   if (!drew) {
-    ctx.fillStyle = '#7bdff2';
+    ctx.fillStyle = T.colors.player;
     ctx.fillRect(Math.round(player.x), Math.round(player.y), player.w, player.h);
-    ctx.fillStyle = '#12111a';
+    ctx.fillStyle = T.colors.playerEyes;
     ctx.fillRect(Math.round(player.x) + 5, Math.round(player.y) + 7, 4, 4);
     ctx.fillRect(Math.round(player.x) + 15, Math.round(player.y) + 7, 4, 4);
   }
@@ -178,9 +185,9 @@ export function setScoreListener(fn) { onScoreChange = fn; }
 export function getState() { return state; }
 export function resetGame() {
   state.score = 0; state.time = 0; state.running = true;
-  player.x = GAME.tile * 2; player.y = GAME.tile * 2;
+  player.x = TILE * 2; player.y = TILE * 2;
   pickups.length = 0;
-  for (let i = 0; i < 6; i++) spawnPickup();
+  for (let i = 0; i < T.pickups.count; i++) spawnPickup();
   onScoreChange?.(0);
 }
 
@@ -193,7 +200,6 @@ export function start(canvas) {
   let last = performance.now();
 
   function frame(now) {
-    // 250 мс стеля: після згорнутої вкладки не проганяємо сотні кроків
     acc += Math.min((now - last) / 1000, 0.25);
     last = now;
     while (acc >= STEP) { update(STEP); acc -= STEP; }

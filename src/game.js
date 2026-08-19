@@ -38,16 +38,25 @@ const solidAt = (px, py) => {
   return LEVEL[r]?.[c] === 1;
 };
 
+// Перевіряє ВСІ клітинки під прямокутником, а не тільки кути.
+// Завдяки цьому гравець може бути більшим за клітинку і не провалюватись крізь стіни.
+function boxHitsWall(x, y, w, h) {
+  const c0 = Math.floor(x / TILE);
+  const c1 = Math.floor((x + w - 1) / TILE);
+  const r0 = Math.floor(y / TILE);
+  const r1 = Math.floor((y + h - 1) / TILE);
+  for (let r = r0; r <= r1; r++) {
+    for (let c = c0; c <= c1; c++) {
+      if (LEVEL[r]?.[c] === 1) return true;
+    }
+  }
+  return false;
+}
+
 function moveAxis(entity, dx, dy) {
   const nx = entity.x + dx;
   const ny = entity.y + dy;
-  const corners = [
-    [nx, ny],
-    [nx + entity.w - 1, ny],
-    [nx, ny + entity.h - 1],
-    [nx + entity.w - 1, ny + entity.h - 1],
-  ];
-  if (corners.some(([cx, cy]) => solidAt(cx, cy))) return false;
+  if (boxHitsWall(nx, ny, entity.w, entity.h)) return false;
   entity.x = nx;
   entity.y = ny;
   return true;
@@ -91,7 +100,7 @@ function spawnPickup() {
   for (let tries = 0; tries < 200; tries++) {
     const x = Math.random() * (GAME.width - 40) + 20;
     const y = Math.random() * (GAME.height - 40) + 20;
-    if (!solidAt(x, y) && !solidAt(x + s, y + s)) {
+    if (!boxHitsWall(x, y, s, s)) {
       pickups.push({ x, y, w: s, h: s, t: 0 });
       return;
     }

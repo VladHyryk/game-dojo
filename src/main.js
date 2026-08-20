@@ -18,6 +18,7 @@ let botInstance = null;
 let pollInterval = null;
 let botTimeout = null;
 
+// Об'єкт супротивника з параметрами анімації
 export const enemy = {
   x: 200,
   y: 200,
@@ -26,10 +27,10 @@ export const enemy = {
   dir: 0,
   frame: 0,
   frameTimer: 0,
-  moving: false,
-  size: TUNING.player.size
+  moving: false
 };
 
+// 2. Клас Бота з анімацією та оминанням стін
 class Bot {
   constructor(x = 200, y = 200) {
     this.x = x;
@@ -117,17 +118,17 @@ class Bot {
       }
     }
 
-    // Визначення напрямку та анімації спрайту бота
+    // Анімація спрайту бота
     const movedX = this.x - oldX;
     const movedY = this.y - oldY;
     const isMoving = Math.abs(movedX) > 0.05 || Math.abs(movedY) > 0.05;
 
     if (Math.abs(movedX) > Math.abs(movedY)) {
-      if (movedX < 0) this.dir = 1;      // Вліво
-      else if (movedX > 0) this.dir = 2; // Вправо
+      if (movedX < 0) this.dir = 1;
+      else if (movedX > 0) this.dir = 2;
     } else if (Math.abs(movedY) > 0.05) {
-      if (movedY < 0) this.dir = 3;      // Вгору
-      else if (movedY > 0) this.dir = 0; // Вниз
+      if (movedY < 0) this.dir = 3;
+      else if (movedY > 0) this.dir = 0;
     }
 
     if (isMoving) {
@@ -140,7 +141,7 @@ class Bot {
       this.frame = 0;
     }
 
-    // Синхронізація з глобальним об'єктом enemy
+    // Синхронізація для малювання
     enemy.x = this.x;
     enemy.y = this.y;
     enemy.dir = this.dir;
@@ -149,7 +150,13 @@ class Bot {
   }
 }
 
-// 3. Метчмейкінг на DB запитах (до 30 секунд)
+export function tickBot(pickupsList, boxHitsWallFn, dt) {
+  if (isPlayingWithBot && botInstance) {
+    botInstance.update(pickupsList, boxHitsWallFn, dt);
+  }
+}
+
+// 3. Метчмейкінг на DB запитах
 async function findMatch() {
   const statusEl = document.getElementById('status');
   if (statusEl) statusEl.textContent = 'Шукаємо суперника (до 30 сек)...';
@@ -253,17 +260,19 @@ function startPVPGame(roomId, role) {
       if (payload.sender !== playerId) {
         enemy.x = payload.x;
         enemy.y = payload.y;
+        enemy.dir = payload.dir || 0;
+        enemy.frame = payload.frame || 0;
       }
     })
     .subscribe();
 }
 
-export function sendMyMovement(x, y) {
+export function sendMyMovement(x, y, dir, frame) {
   if (roomChannel && !isPlayingWithBot) {
     roomChannel.send({
       type: 'broadcast',
       event: 'move',
-      payload: { sender: playerId, x, y }
+      payload: { sender: playerId, x, y, dir, frame }
     });
   }
 }

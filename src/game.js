@@ -124,12 +124,10 @@ function update(dt) {
   moveAxis(player, dx * player.speed * dt, 0);
   moveAxis(player, 0, dy * player.speed * dt);
 
-  // Відправляємо свої координати (для PVP)
   if (player.moving) {
-    sendMyMovement(player.x, player.y);
+    sendMyMovement(player.x, player.y, player.dir, player.frame);
   }
 
-  // Передаємо в tickBot інформацію та локальну функцію перевірки колізій boxHitsWall
   tickBot(pickups, boxHitsWall, dt);
 
   if (player.moving) {
@@ -142,12 +140,10 @@ function update(dt) {
     player.frame = 0;
   }
 
-  // Обробка колізій з монетками (Гравець і Бот)
   for (let i = pickups.length - 1; i >= 0; i--) {
     const p = pickups[i];
     p.t += dt;
 
-    // 1. Гравець збирає монетку
     const hitPlayer =
       player.x < p.x + p.w && player.x + player.w > p.x &&
       player.y < p.y + p.h && player.y + player.h > p.y;
@@ -160,12 +156,12 @@ function update(dt) {
       continue;
     }
 
-    // 2. Бот / Суперник збирає монетку
     if (enemy) {
-      const eSize = enemy.size || T.player.size;
+      const eW = enemy.w || T.player.size;
+      const eH = enemy.h || T.player.size;
       const hitEnemy =
-        enemy.x < p.x + p.w && enemy.x + eSize > p.x &&
-        enemy.y < p.y + p.h && enemy.y + eSize > p.y;
+        enemy.x < p.x + p.w && enemy.x + eW > p.x &&
+        enemy.y < p.y + p.h && enemy.y + eH > p.y;
 
       if (hitEnemy) {
         pickups.splice(i, 1);
@@ -196,7 +192,7 @@ function render(ctx) {
     ctx.fillRect(p.x, p.y + bob, p.w, p.h);
   }
 
-  // 1. Малювання Нашого Гравця
+  // 1. Гравець
   const drew = heroSheet.draw(ctx, player.frame, player.dir, player.x, player.y, player.w, player.h);
   if (!drew) {
     ctx.fillStyle = T.colors.player;
@@ -206,7 +202,7 @@ function render(ctx) {
     ctx.fillRect(Math.round(player.x) + 9, Math.round(player.y) + 3, 3, 3);
   }
 
-  // 2. Малювання Супротивника / Бота через SpriteSheet
+  // 2. Бот / Суперник (використовує той самий heroSheet)
   if (enemy) {
     const drewEnemy = heroSheet.draw(
       ctx,
@@ -218,10 +214,9 @@ function render(ctx) {
       enemy.h || T.player.size
     );
 
-    // Фолбек (якщо спрайт ще не завантажився)
     if (!drewEnemy) {
       ctx.fillStyle = T.colors.enemy || '#ff595e';
-      ctx.fillRect(Math.round(enemy.x), Math.round(enemy.y), enemy.size || T.player.size, enemy.size || T.player.size);
+      ctx.fillRect(Math.round(enemy.x), Math.round(enemy.y), enemy.w || T.player.size, enemy.h || T.player.size);
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(Math.round(enemy.x) + 3, Math.round(enemy.y) + 3, 3, 3);
       ctx.fillRect(Math.round(enemy.x) + 9, Math.round(enemy.y) + 3, 3, 3);

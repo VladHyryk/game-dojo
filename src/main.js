@@ -15,6 +15,7 @@ let currentRoom = null;
 let roomChannel = null;
 let isPlayingWithBot = false;
 let botInstance = null;
+let searchInterval = null;
 
 export const enemy = {
   x: 200,
@@ -42,12 +43,14 @@ class Bot {
   }
 }
 
-// 3. Метчмейкінг (Миттєвий Broadcast)
+// 3. Метчмейкінг з інтервалом (Broadcast Ping Loop)
 const lobbyChannel = supabase.channel('global_matchmaking');
 
 lobbyChannel
   .on('broadcast', { event: 'search_opponent' }, (payload) => {
-    if (payload.playerId !== playerId && !currentRoom) {
+    if (payload.playerId !== playerId && !currentRoom && !isPlayingWithBot) {
+      console.log("Знайдено гравця!", payload.playerId);
+      
       const roomId = `room_${payload.playerId}_${playerId}`;
       
       lobbyChannel.send({
@@ -60,8 +63,8 @@ lobbyChannel
     }
   })
   .on('broadcast', { event: 'match_found' }, (payload) => {
-    if (payload.player1 === playerId && !currentRoom) {
-      startPVPGame(payload.roomId, 'player1');
+    if ((payload.player1 === playerId || payload.player2 === playerId) && !currentRoom) {
+      startPVPGame(payload.roomId, payload.player1 === playerId ? 'player1' : 'player2');
     }
   })
   .subscribe();
@@ -70,8 +73,24 @@ async function findMatch() {
   const statusEl = document.getElementById('status');
   if (statusEl) statusEl.textContent = 'Шукаємо суперника...';
 
+  if (searchInterval) clearInterval(searchInterval);
+  clearTimeout(window.botTimer);
+
   currentRoom = null;
   isPlayingWithBot = false;
+
+  // Постійно повідомляємо про пошук кожні 800мс
+  searchInterval = setInterval(() => {
+    if (!currentRoom) {
+      lobbyChannel.send({
+        type: 'broadcast',
+        event: 'search_opponent',
+        payload: { playerId }
+      });
+    } else {
+      clearInterval(searchInterval);
+    }
+  }, 800);
 
   lobbyChannel.send({
     type: 'broadcast',
@@ -79,9 +98,10 @@ async function findMatch() {
     payload: { playerId }
   });
 
-  clearTimeout(window.botTimer);
+  // Таймаут 5 секунд -> якщо нікого немає, вмикаємо бота
   window.botTimer = setTimeout(() => {
     if (!currentRoom) {
+      if (searchInterval) clearInterval(searchInterval);
       startPVEBotGame();
     }
   }, 5000);
@@ -96,7 +116,9 @@ function startPVEBotGame() {
 }
 
 function startPVPGame(roomId, role) {
+  if (searchInterval) clearInterval(searchInterval);
   clearTimeout(window.botTimer);
+
   const statusEl = document.getElementById('status');
   if (statusEl) statusEl.textContent = `⚔️ Гра проти гравця (${role})`;
 

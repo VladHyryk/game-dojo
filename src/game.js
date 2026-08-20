@@ -92,7 +92,7 @@ const player = {
 
 const pickups = [];
 const bombs = [];
-const explosions = []; // Ефекти вибуху
+const explosions = [];
 
 function spawnPickup() {
   const s = T.pickups.size;
@@ -195,7 +195,7 @@ function update(dt) {
         const enemyDist = Math.hypot((enemy.x + enemyW / 2) - b.x, (enemy.y + enemyH / 2) - b.y);
 
         if (enemyDist <= b.radius) {
-          respawnBot(); // <--- Виклик примусового респавну бота
+          respawnBot();
           if (enemy.score !== undefined) {
             enemy.score = Math.max(0, enemy.score - 50);
           }

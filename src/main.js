@@ -167,7 +167,7 @@ export function tickBot(pickupsList, boxHitsWallFn, playerObj, dt) {
   }
 }
 
-// Функція для примусового респавну екземпляра бота
+// Функція примусового респавну екземпляра бота
 export function respawnBot() {
   if (botInstance) {
     botInstance.x = GAME.width - 80;
@@ -180,7 +180,7 @@ export function respawnBot() {
   }
 }
 
-// 3. Метчмейкінг на DB запитах
+// 3. Метчмейкінг на DB Polling (надійне з'єднання)
 async function findMatch() {
   const statusEl = document.getElementById('status');
   if (statusEl) statusEl.textContent = 'Шукаємо суперника (до 30 сек)...';
@@ -193,58 +193,79 @@ async function findMatch() {
   isPlayingWithBot = false;
 
   try {
-    const { data: waitingPlayers } = await supabase
+    // 1. Очищаємо записи, старіші за 30 секунд
+    const thirtySecAgo = new Date(Date.now() - 30000).toISOString();
+    await supabase
+      .from('matchmaking_queue')
+      .delete()
+      .lt('created_at', thirtySecAgo);
+
+    // 2. Шукаємо будь-кого, хто чекає у черзі (статус 'waiting')
+    const { data: waitingList, error: selectErr } = await supabase
       .from('matchmaking_queue')
       .select('*')
       .eq('status', 'waiting')
       .neq('player_id', playerId)
-      .order('created_at', { ascending: true })
-      .limit(1);
+      .order('created_at', { ascending: true });
 
-    if (waitingPlayers && waitingPlayers.length > 0) {
-      const waitingPlayer = waitingPlayers[0];
-      const roomId = `room_${waitingPlayer.id}`;
+    if (selectErr) console.error("Помилка читання черги:", selectErr);
+
+    if (waitingList && waitingList.length > 0) {
+      const opponent = waitingList[0];
+      const roomId = `room_${opponent.id}`;
+
+      console.log("✅ Знайдено суперника у черзі!", opponent);
 
       await supabase
         .from('matchmaking_queue')
         .update({ status: 'matched', room_id: roomId })
-        .eq('id', waitingPlayer.id);
+        .eq('id', opponent.id);
 
       startPVPGame(roomId, 'player2');
       return;
     }
 
-    const { data: myEntry, error } = await supabase
+    // 3. Якщо нікого немає — додаємо СЕБЕ в чергу
+    const { data: myEntryArray, error: insertErr } = await supabase
       .from('matchmaking_queue')
       .insert([{ player_id: playerId, status: 'waiting' }])
-      .select()
-      .single();
+      .select();
 
-    if (error || !myEntry) {
+    if (insertErr || !myEntryArray || myEntryArray.length === 0) {
+      console.error("Помилка запису в чергу:", insertErr);
       startPVEBotGame();
       return;
     }
 
+    const myEntry = myEntryArray[0];
+    console.log("⏳ Записано в чергу з ID:", myEntry.id);
+
+    // 4. Опитання (Polling) щосекунди
     pollInterval = setInterval(async () => {
-      const { data: check } = await supabase
+      const { data: checkArray } = await supabase
         .from('matchmaking_queue')
-        .select('status, room_id')
-        .eq('id', myEntry.id)
-        .single();
+        .select('*')
+        .eq('id', myEntry.id);
 
-      if (check && check.status === 'matched') {
-        clearInterval(pollInterval);
-        clearTimeout(botTimeout);
-        startPVPGame(check.room_id, 'player1');
+      if (checkArray && checkArray.length > 0) {
+        const check = checkArray[0];
+        if (check.status === 'matched') {
+          console.log("⚔️ Хтось підключився! Вхід у кімнату:", check.room_id);
+          clearInterval(pollInterval);
+          clearTimeout(botTimeout);
+          startPVPGame(check.room_id, 'player1');
+        }
       }
-    }, 1500);
+    }, 1000);
 
+    // 5. ТАЙМАУТ 30 СЕКУНД (запуск бота)
     botTimeout = setTimeout(async () => {
+      console.log("⏰ 30 секунд минуло. Перехід до бота.");
       clearInterval(pollInterval);
 
       await supabase
         .from('matchmaking_queue')
-        .update({ status: 'expired' })
+        .delete()
         .eq('id', myEntry.id);
 
       if (!currentRoom) {
@@ -253,6 +274,7 @@ async function findMatch() {
     }, 30000);
 
   } catch (err) {
+    console.error("💥 Помилка в findMatch:", err);
     startPVEBotGame();
   }
 }

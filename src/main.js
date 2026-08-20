@@ -26,10 +26,11 @@ export const enemy = {
   dir: 0,
   frame: 0,
   frameTimer: 0,
-  moving: false
+  moving: false,
+  score: 0
 };
 
-// 2. Клас Бота з використанням Бомб
+// 2. Клас Бота
 class Bot {
   constructor(x = 200, y = 200) {
     this.x = x;
@@ -43,6 +44,7 @@ class Bot {
     this.frameTimer = 0;
     this.usedBombs = 0;
     this.bombCooldown = 0;
+    enemy.score = 0;
   }
 
   hasLineOfSight(target, boxHitsWallFn) {
@@ -84,10 +86,12 @@ class Bot {
 
     if (!target) return;
 
-    // Автоматичне ставлення бомби ботом біля скупчення або гравця
-    if (minDist < 30 && this.bombCooldown <= 0) {
-      placeBomb(this.x, this.y, this);
-      this.bombCooldown = 4.0; // Таймаут для бота на наступну бомбу
+    // Бот може ставити бомбу, якщо поруч гравець або скупчення
+    if (minDist < 40 && this.bombCooldown <= 0) {
+      if (placeBomb(this.x, this.y, enemy.score, this.usedBombs)) {
+        this.usedBombs++;
+        this.bombCooldown = 5.0;
+      }
     }
 
     const oldX = this.x;

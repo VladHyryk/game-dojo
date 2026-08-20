@@ -91,7 +91,8 @@ const player = {
 };
 
 const pickups = [];
-const bombs = []; // Масив усіх активних бомб
+const bombs = [];
+const explosions = []; // Ефекти вибуху
 
 function spawnPickup() {
   const s = T.pickups.size;
@@ -108,20 +109,19 @@ for (let i = 0; i < T.pickups.count; i++) spawnPickup();
 
 const state = { score: 0, time: 0, running: true };
 
-// Функція ставить бомбу
-export function placeBomb(ownerX, ownerY, ownerObj) {
-  const available = Math.floor(state.score / 25) - ownerObj.usedBombs;
+// Ставимо бомбу точно по центром об'єкта
+export function placeBomb(ownerX, ownerY, scoreVal, usedBombsCounter) {
+  const available = Math.floor(scoreVal / 25) - usedBombsCounter;
   if (available > 0) {
-    ownerObj.usedBombs++;
     bombs.push({
-      x: ownerX + T.player.size / 2 - 8,
-      y: ownerY + T.player.size / 2 - 8,
-      w: 16,
-      h: 16,
-      timer: 3.0, // 3 секунди до вибуху
-      radius: 60
+      x: ownerX + T.player.size / 2,
+      y: ownerY + T.player.size / 2,
+      timer: 3.0,
+      radius: 70
     });
+    return true;
   }
+  return false;
 }
 
 // ── Оновлення ─────────────────────────────────────────────────────────
@@ -146,9 +146,11 @@ function update(dt) {
   moveAxis(player, dx * player.speed * dt, 0);
   moveAxis(player, 0, dy * player.speed * dt);
 
-  // Спроба поставити бомбу на Пробіл
+  // Спроба закласти бомбу гравецем
   if (spacePressed) {
-    placeBomb(player.x, player.y, player);
+    if (placeBomb(player.x, player.y, state.score, player.usedBombs)) {
+      player.usedBombs++;
+    }
     spacePressed = false;
   }
 
@@ -156,7 +158,6 @@ function update(dt) {
     sendMyMovement(player.x, player.y, player.dir, player.frame);
   }
 
-  // Передаємо стан у бота
   tickBot(pickups, boxHitsWall, player, dt);
 
   if (player.moving) {
@@ -169,22 +170,32 @@ function update(dt) {
     player.frame = 0;
   }
 
-  // Логіка Бомб
+  // Логіка оновлення бомб
   for (let i = bombs.length - 1; i >= 0; i--) {
     const b = bombs[i];
     b.timer -= dt;
 
     if (b.timer <= 0) {
-      // ВИБУХ: знищуємо монетки в радіусі
+      // Додаємо анімацію вибуху
+      explosions.push({ x: b.x, y: b.y, radius: b.radius, timer: 0.3 });
+
+      // Вибух знищує монети
       for (let j = pickups.length - 1; j >= 0; j--) {
         const p = pickups[j];
-        if (Math.hypot(p.x - b.x, p.y - b.y) <= b.radius) {
+        if (Math.hypot((p.x + p.w / 2) - b.x, (p.y + p.h / 2) - b.y) <= b.radius) {
           pickups.splice(j, 1);
           spawnPickup();
         }
       }
       bombs.splice(i, 1);
     }
+  }
+
+  // Логіка оновлення ефектів вибуху
+  for (let i = explosions.length - 1; i >= 0; i--) {
+    const exp = explosions[i];
+    exp.timer -= dt;
+    if (exp.timer <= 0) explosions.splice(i, 1);
   }
 
   // Монетки
@@ -213,6 +224,7 @@ function update(dt) {
 
       if (hitEnemy) {
         pickups.splice(i, 1);
+        if (enemy.score !== undefined) enemy.score += T.pickups.scoreValue;
         spawnPickup();
       }
     }
@@ -234,33 +246,43 @@ function render(ctx) {
     }
   }
 
-  // Малювання Бомб
-  for (const b of bombs) {
-    const blink = Math.sin(b.timer * 15) > 0;
-    ctx.fillStyle = blink ? '#ff0000' : '#222222';
-    ctx.beginPath();
-    ctx.arc(b.x + b.w / 2, b.y + b.h / 2, 8, 0, Math.PI * 2);
-    ctx.fill();
-    // Ґніт
-    ctx.fillStyle = '#ffaa00';
-    ctx.fillRect(b.x + b.w / 2 - 1, b.y - 3, 2, 4);
-  }
-
-  // Монетки
+  // 1. Монетки
   for (const p of pickups) {
     const bob = Math.sin(p.t * T.pickups.bobSpeed) * T.pickups.bobHeight;
     ctx.fillStyle = T.colors.pickup;
     ctx.fillRect(p.x, p.y + bob, p.w, p.h);
   }
 
-  // Гравець
+  // 2. Бомби
+  for (const b of bombs) {
+    const blink = Math.sin(b.timer * 20) > 0;
+    ctx.fillStyle = blink ? '#ff4444' : '#111111';
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffaa00';
+    ctx.fillRect(b.x - 1, b.y - 14, 2, 5);
+  }
+
+  // 3. Вибухи
+  for (const exp of explosions) {
+    ctx.fillStyle = 'rgba(255, 100, 0, 0.5)';
+    ctx.beginPath();
+    ctx.arc(exp.x, exp.y, exp.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#ffcc00';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
+
+  // 4. Гравець
   const drew = heroSheet.draw(ctx, player.frame, player.dir, player.x, player.y, player.w, player.h);
   if (!drew) {
     ctx.fillStyle = T.colors.player;
     ctx.fillRect(Math.round(player.x), Math.round(player.y), player.w, player.h);
   }
 
-  // Суперник / Бот
+  // 5. Супротивник / Бот
   if (enemy) {
     const drewEnemy = heroSheet.draw(
       ctx,
@@ -278,11 +300,11 @@ function render(ctx) {
     }
   }
 
-  // Відображення доступних бомб на екрані
+  // Панель статусу бомб
   const availableBombs = Math.max(0, Math.floor(state.score / 25) - player.usedBombs);
   ctx.fillStyle = '#ffffff';
-  ctx.font = '12px monospace';
-  ctx.fillText(`Бомби [Space]: ${availableBombs}`, 10, 20);
+  ctx.font = '14px monospace';
+  ctx.fillText(`Бомби [Space]: ${availableBombs} (наступна через ${25 - (state.score % 25)} очок)`, 15, 25);
 }
 
 // ── Цикл з фіксованим кроком ──────────────────────────────────────────
@@ -295,6 +317,7 @@ export function resetGame() {
   player.usedBombs = 0;
   pickups.length = 0;
   bombs.length = 0;
+  explosions.length = 0;
   for (let i = 0; i < T.pickups.count; i++) spawnPickup();
   onScoreChange?.(0);
 }

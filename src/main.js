@@ -24,7 +24,7 @@ export const enemy = {
   size: TUNING.player.size
 };
 
-// 2. Розумний Клас Бота з оминанням стін
+// 2. Розумний Клас Бота з алгоритмом обходу перешкод
 class Bot {
   constructor(x = 200, y = 200) {
     this.x = x;
@@ -32,12 +32,14 @@ class Bot {
     this.w = TUNING.player.size;
     this.h = TUNING.player.size;
     this.speed = 135;
+    this.stuckTimer = 0;
+    this.avoidDir = 1; // 1 або -1 для вибору напрямку обходу
   }
 
   update(pickupsList, boxHitsWallFn, dt = 0.016) {
     if (!pickupsList || pickupsList.length === 0) return;
 
-    // Знаходимо найближчу монетку
+    // 1. Знаходимо найближчу монетку
     let target = null;
     let minDist = Infinity;
     for (const p of pickupsList) {
@@ -55,16 +57,36 @@ class Bot {
     const dist = Math.hypot(dx, dy);
 
     if (dist > 2) {
-      const stepX = (dx / dist) * this.speed * dt;
-      const stepY = (dy / dist) * this.speed * dt;
+      let stepX = (dx / dist) * this.speed * dt;
+      let stepY = (dy / dist) * this.speed * dt;
 
-      // Рух по X з перевіркою стіни
-      if (!boxHitsWallFn(this.x + stepX, this.y, this.w, this.h)) {
+      // Спроба звичайного руху
+      const canMoveX = !boxHitsWallFn(this.x + stepX, this.y, this.w, this.h);
+      const canMoveY = !boxHitsWallFn(this.x, this.y + stepY, this.w, this.h);
+
+      if (canMoveX) {
         this.x += stepX;
+      } else {
+        // БОТ ВПЕРСЯ ПО X! Робимо обхід по Y (вгору або вниз)
+        const detourY = this.speed * dt * this.avoidDir;
+        if (!boxHitsWallFn(this.x, this.y + detourY, this.w, this.h)) {
+          this.y += detourY;
+        } else {
+          // Якщо і там стіна — змінюємо напрямок обходу на протилежний
+          this.avoidDir *= -1;
+        }
       }
-      // Рух по Y з перевіркою стіни
-      if (!boxHitsWallFn(this.x, this.y + stepY, this.w, this.h)) {
+
+      if (canMoveY) {
         this.y += stepY;
+      } else {
+        // БОТ ВПЕРСЯ ПО Y! Робимо обхід по X (ліворуч або праворуч)
+        const detourX = this.speed * dt * this.avoidDir;
+        if (!boxHitsWallFn(this.x + detourX, this.y, this.w, this.h)) {
+          this.x += detourX;
+        } else {
+          this.avoidDir *= -1;
+        }
       }
     }
 

@@ -9,7 +9,6 @@ const SUPABASE_KEY = "sb_publishable_MgiS3rEYZVXqD0MSPhIYtg_Vf4WdaNm";
 
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// Унікальний ID гравця на час сесії
 const playerId = 'player_' + Math.random().toString(36).substr(2, 9);
 
 let currentRoom = null;
@@ -17,21 +16,18 @@ let roomChannel = null;
 let isPlayingWithBot = false;
 let botInstance = null;
 
-// Об'єкт для другого гравця / бота на екрані
 export const enemy = {
   x: 200,
   y: 200,
   size: TUNING.player.size
 };
 
-// ==========================================
-// 2. Клас Бота для PVE режиму
-// ==========================================
+// 2. Клас Бота
 class Bot {
   constructor(x = 200, y = 200) {
     this.x = x;
     this.y = y;
-    this.speed = 150; // Швидкість у пікселях на секунду
+    this.speed = 150;
   }
 
   update(targetX, targetY, dt = 0.016) {
@@ -41,93 +37,73 @@ class Bot {
     if (this.y < targetY) this.y += step;
     if (this.y > targetY) this.y -= step;
 
-    // Синхронізуємо з об'єктом ворога
     enemy.x = this.x;
     enemy.y = this.y;
   }
 }
 
-// ==========================================
-// 3. Пошук гри (Matchmaking)
-// ==========================================
+// 3. Метчмейкінг (Миттєвий Broadcast)
+const lobbyChannel = supabase.channel('global_matchmaking');
+
+lobbyChannel
+  .on('broadcast', { event: 'search_opponent' }, (payload) => {
+    if (payload.playerId !== playerId && !currentRoom) {
+      const roomId = `room_${payload.playerId}_${playerId}`;
+      
+      lobbyChannel.send({
+        type: 'broadcast',
+        event: 'match_found',
+        payload: { player1: payload.playerId, player2: playerId, roomId }
+      });
+
+      startPVPGame(roomId, 'player2');
+    }
+  })
+  .on('broadcast', { event: 'match_found' }, (payload) => {
+    if (payload.player1 === playerId && !currentRoom) {
+      startPVPGame(payload.roomId, 'player1');
+    }
+  })
+  .subscribe();
+
 async function findMatch() {
   const statusEl = document.getElementById('status');
   if (statusEl) statusEl.textContent = 'Шукаємо суперника...';
 
-  // 1. Шукаємо гравця, який вже чекає в черзі
-  const { data: waitingPlayer } = await supabase
-    .from('matchmaking_queue')
-    .select('*')
-    .eq('status', 'waiting')
-    .neq('player_id', playerId)
-    .limit(1)
-    .maybeSingle();
+  currentRoom = null;
+  isPlayingWithBot = false;
 
-  if (waitingPlayer) {
-    const roomId = `room_${waitingPlayer.id}`;
-    
-    await supabase
-      .from('matchmaking_queue')
-      .update({ status: 'matched', room_id: roomId })
-      .eq('id', waitingPlayer.id);
+  lobbyChannel.send({
+    type: 'broadcast',
+    event: 'search_opponent',
+    payload: { playerId }
+  });
 
-    startPVPGame(roomId, 'player2');
-    return;
-  }
-
-  // 2. Якщо нікого немає — додаємо себе в чергу
-  const { data: myEntry } = await supabase
-    .from('matchmaking_queue')
-    .insert([{ player_id: playerId, status: 'waiting' }])
-    .select()
-    .single();
-
-  const queueChannel = supabase
-    .channel(`queue_${myEntry.id}`)
-    .on('postgres_changes', {
-      event: 'UPDATE',
-      schema: 'public',
-      table: 'matchmaking_queue',
-      filter: `id=eq.${myEntry.id}`
-    }, (payload) => {
-      if (payload.new.status === 'matched') {
-        supabase.removeChannel(queueChannel);
-        clearTimeout(botTimer);
-        startPVPGame(payload.new.room_id, 'player1');
-      }
-    })
-    .subscribe();
-
-  // 3. Таймаут 5 секунд -> Запуск БОТА
-  const botTimer = setTimeout(async () => {
-    supabase.removeChannel(queueChannel);
-    
-    await supabase
-      .from('matchmaking_queue')
-      .update({ status: 'expired' })
-      .eq('id', myEntry.id);
-
-    startPVEBotGame();
+  clearTimeout(window.botTimer);
+  window.botTimer = setTimeout(() => {
+    if (!currentRoom) {
+      startPVEBotGame();
+    }
   }, 5000);
 }
 
-// ==========================================
-// 4. Запуск режимів
-// ==========================================
 function startPVEBotGame() {
   const statusEl = document.getElementById('status');
-  if (statusEl) statusEl.textContent = '🤖 Суперника не знайдено. Гра проти БОТА!';
+  if (statusEl) statusEl.textContent = '🤖 Гра проти БОТА';
   
   isPlayingWithBot = true;
   botInstance = new Bot(200, 200);
 }
 
 function startPVPGame(roomId, role) {
+  clearTimeout(window.botTimer);
   const statusEl = document.getElementById('status');
-  if (statusEl) statusEl.textContent = `⚔️ Матч знайдено! Гра протів гравця (${role})`;
+  if (statusEl) statusEl.textContent = `⚔️ Гра проти гравця (${role})`;
 
   isPlayingWithBot = false;
   currentRoom = roomId;
+
+  if (roomChannel) supabase.removeChannel(roomChannel);
 
   roomChannel = supabase.channel(roomId);
   roomChannel
@@ -140,11 +116,6 @@ function startPVPGame(roomId, role) {
     .subscribe();
 }
 
-export function updateEnemyPosition(x, y) {
-  enemy.x = x;
-  enemy.y = y;
-}
-
 export function sendMyMovement(x, y) {
   if (roomChannel && !isPlayingWithBot) {
     roomChannel.send({
@@ -155,16 +126,13 @@ export function sendMyMovement(x, y) {
   }
 }
 
-// Експорт оновлення бота для ігрового циклу (викликати в game.js)
 export function tickBot(heroX, heroY, dt) {
   if (isPlayingWithBot && botInstance) {
     botInstance.update(heroX, heroY, dt);
   }
 }
 
-// ==========================================
-// 5. Ініціалізація UI та Старту
-// ==========================================
+// 4. Ініціалізація UI
 const t = TUNING.texts;
 document.title = t.title;
 document.getElementById('title').textContent = t.title;
@@ -230,11 +198,10 @@ saveBtn.addEventListener('click', async () => {
 
 resetBtn.addEventListener('click', () => {
   resetGame();
-  findMatch(); // Шукаємо новий матч або запускаємо бота заново
+  findMatch();
   canvas.focus();
 });
 
-// Запускаємо рендер та пошук суперника при завантаженні
 start(canvas);
 findMatch();
 refreshBoard();

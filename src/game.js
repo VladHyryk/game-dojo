@@ -1,5 +1,6 @@
 import { GAME } from './config.js';
 import { TUNING } from './tuning.js';
+import { enemy, sendMyMovement, tickBot } from './main.js';
 
 const T = TUNING;
 const TILE = T.field.tile;
@@ -16,7 +17,6 @@ addEventListener('blur', () => keys.clear());
 const held = (...names) => names.some((n) => keys.has(n));
 
 // ── Рівень ────────────────────────────────────────────────────────────
-// 0 — підлога, 1 — стіна.
 const LEVEL = [];
 {
   const cols = Math.ceil(GAME.width / TILE);
@@ -32,14 +32,6 @@ const LEVEL = [];
   }
 }
 
-const solidAt = (px, py) => {
-  const c = Math.floor(px / TILE);
-  const r = Math.floor(py / TILE);
-  return LEVEL[r]?.[c] === 1;
-};
-
-// Перевіряє ВСІ клітинки під прямокутником, а не тільки кути.
-// Завдяки цьому гравець може бути більшим за клітинку і не провалюватись крізь стіни.
 function boxHitsWall(x, y, w, h) {
   const c0 = Math.floor(x / TILE);
   const c1 = Math.floor((x + w - 1) / TILE);
@@ -132,6 +124,15 @@ function update(dt) {
   moveAxis(player, dx * player.speed * dt, 0);
   moveAxis(player, 0, dy * player.speed * dt);
 
+  // Відправляємо координати 2-му гравцю
+  if (player.moving) {
+    sendMyMovement(player.x, player.y);
+  }
+
+  // Оновлюємо бота (рухається до першої збиранки або гравця)
+  const target = pickups[0] || player;
+  tickBot(target.x, target.y, dt);
+
   if (player.moving) {
     player.frameTimer += dt;
     if (player.frameTimer > 1 / T.player.animationSpeed) {
@@ -178,13 +179,24 @@ function render(ctx) {
     ctx.fillRect(p.x, p.y + bob, p.w, p.h);
   }
 
+  // 1. Малювання Нашого Гравця
   const drew = heroSheet.draw(ctx, player.frame, player.dir, player.x, player.y, player.w, player.h);
   if (!drew) {
     ctx.fillStyle = T.colors.player;
     ctx.fillRect(Math.round(player.x), Math.round(player.y), player.w, player.h);
     ctx.fillStyle = T.colors.playerEyes;
-    ctx.fillRect(Math.round(player.x) + 5, Math.round(player.y) + 7, 4, 4);
-    ctx.fillRect(Math.round(player.x) + 15, Math.round(player.y) + 7, 4, 4);
+    ctx.fillRect(Math.round(player.x) + 3, Math.round(player.y) + 3, 3, 3);
+    ctx.fillRect(Math.round(player.x) + 9, Math.round(player.y) + 3, 3, 3);
+  }
+
+  // 2. Малювання Супротивника / Бота
+  if (enemy) {
+    ctx.fillStyle = T.colors.enemy || '#ff595e';
+    ctx.fillRect(Math.round(enemy.x), Math.round(enemy.y), enemy.size || T.player.size, enemy.size || T.player.size);
+    // Очі суперника
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(Math.round(enemy.x) + 3, Math.round(enemy.y) + 3, 3, 3);
+    ctx.fillRect(Math.round(enemy.x) + 9, Math.round(enemy.y) + 3, 3, 3);
   }
 }
 

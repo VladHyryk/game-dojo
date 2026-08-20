@@ -172,7 +172,7 @@ export function respawnBot() {
   }
 }
 
-// 3. Метчмейкінг
+// 3. Метчмейкінг без хибного фолбеку на бота
 async function findMatch() {
   const statusEl = document.getElementById('status');
   if (statusEl) statusEl.textContent = 'Шукаємо суперника (до 30 сек)...';
@@ -184,92 +184,92 @@ async function findMatch() {
   currentRoom = null;
   isPlayingWithBot = false;
 
-  if (!supabase) {
-    console.error("❌ Supabase не підключено!");
+  console.log("🚀 [MATCH] Початок пошуку. Мій ID:", playerId);
+
+  // 1. Спроба видалити старі записи (без вильоту в бот-режим у разі помилки)
+  try {
+    const thirtySecAgo = new Date(Date.now() - 30000).toISOString();
+    await supabase.from('matchmaking_queue').delete().lt('created_at', thirtySecAgo);
+  } catch (e) {
+    console.warn("Попередження при очищенні черги:", e);
+  }
+
+  // 2. Шукаємо суперника, який чекає
+  const { data: waitingList, error: selectErr } = await supabase
+    .from('matchmaking_queue')
+    .select('*')
+    .eq('status', 'waiting')
+    .neq('player_id', playerId)
+    .order('created_at', { ascending: true });
+
+  if (selectErr) {
+    console.error("❌ Помилка читання черги (перевірте SQL таблицю в Supabase):", selectErr);
+  }
+
+  // Якщо знайшли — підключаємось як player2
+  if (waitingList && waitingList.length > 0) {
+    const opponent = waitingList[0];
+    const roomId = `room_${opponent.id}`;
+
+    console.log("✅ Знайдено суперника у черзі!", opponent);
+
+    await supabase
+      .from('matchmaking_queue')
+      .update({ status: 'matched', room_id: roomId })
+      .eq('id', opponent.id);
+
+    startPVPGame(roomId, 'player2');
+    return;
+  }
+
+  // 3. Якщо нікого немає — додаємо себе в чергу
+  const { data: myEntryArray, error: insertErr } = await supabase
+    .from('matchmaking_queue')
+    .insert([{ player_id: playerId, status: 'waiting' }])
+    .select();
+
+  if (insertErr || !myEntryArray || myEntryArray.length === 0) {
+    console.error("❌ Помилка створення запису в черзі:", insertErr);
+    // Якщо дійсно не вдалося записатися в БД, лише тоді включаємо бота
     startPVEBotGame();
     return;
   }
 
-  try {
-    const thirtySecAgo = new Date(Date.now() - 30000).toISOString();
+  const myEntry = myEntryArray[0];
+  console.log("⏳ Записано в чергу з ID:", myEntry.id, "Чекаємо 30 секунд...");
+
+  // 4. Опитання (Polling) щосекунди
+  pollInterval = setInterval(async () => {
+    const { data: checkArray } = await supabase
+      .from('matchmaking_queue')
+      .select('*')
+      .eq('id', myEntry.id);
+
+    if (checkArray && checkArray.length > 0) {
+      const check = checkArray[0];
+      if (check.status === 'matched') {
+        console.log("⚔️ Суперник підключився! Вхід у кімнату:", check.room_id);
+        clearInterval(pollInterval);
+        clearTimeout(botTimeout);
+        startPVPGame(check.room_id, 'player1');
+      }
+    }
+  }, 1000);
+
+  // 5. ТАЙМАУТ СТРОВО 30 СЕКУНД
+  botTimeout = setTimeout(async () => {
+    console.log("⏰ 30 секунд минуло. Запуск бота.");
+    clearInterval(pollInterval);
+
     await supabase
       .from('matchmaking_queue')
       .delete()
-      .lt('created_at', thirtySecAgo);
+      .eq('id', myEntry.id);
 
-    const { data: waitingList, error: selectErr } = await supabase
-      .from('matchmaking_queue')
-      .select('*')
-      .eq('status', 'waiting')
-      .neq('player_id', playerId)
-      .order('created_at', { ascending: true });
-
-    if (selectErr) console.error("Помилка читання черги:", selectErr);
-
-    if (waitingList && waitingList.length > 0) {
-      const opponent = waitingList[0];
-      const roomId = `room_${opponent.id}`;
-
-      console.log("✅ Знайдено суперника у черзі!", opponent);
-
-      await supabase
-        .from('matchmaking_queue')
-        .update({ status: 'matched', room_id: roomId })
-        .eq('id', opponent.id);
-
-      startPVPGame(roomId, 'player2');
-      return;
-    }
-
-    const { data: myEntryArray, error: insertErr } = await supabase
-      .from('matchmaking_queue')
-      .insert([{ player_id: playerId, status: 'waiting' }])
-      .select();
-
-    if (insertErr || !myEntryArray || myEntryArray.length === 0) {
-      console.error("Помилка запису в чергу:", insertErr);
+    if (!currentRoom) {
       startPVEBotGame();
-      return;
     }
-
-    const myEntry = myEntryArray[0];
-    console.log("⏳ Записано в чергу з ID:", myEntry.id);
-
-    pollInterval = setInterval(async () => {
-      const { data: checkArray } = await supabase
-        .from('matchmaking_queue')
-        .select('*')
-        .eq('id', myEntry.id);
-
-      if (checkArray && checkArray.length > 0) {
-        const check = checkArray[0];
-        if (check.status === 'matched') {
-          console.log("⚔️ Хтось підключився! Вхід у кімнату:", check.room_id);
-          clearInterval(pollInterval);
-          clearTimeout(botTimeout);
-          startPVPGame(check.room_id, 'player1');
-        }
-      }
-    }, 1000);
-
-    botTimeout = setTimeout(async () => {
-      console.log("⏰ 30 секунд минуло. Перехід до бота.");
-      clearInterval(pollInterval);
-
-      await supabase
-        .from('matchmaking_queue')
-        .delete()
-        .eq('id', myEntry.id);
-
-      if (!currentRoom) {
-        startPVEBotGame();
-      }
-    }, 30000);
-
-  } catch (err) {
-    console.error("💥 Помилка в findMatch:", err);
-    startPVEBotGame();
-  }
+  }, 30000);
 }
 
 function startPVEBotGame() {

@@ -1,6 +1,6 @@
 import { GAME } from './config.js';
 import { TUNING } from './tuning.js';
-import { start, setScoreListener, getState, resetGame } from './game.js';
+import { start, setScoreListener, getState, resetGame, placeBomb } from './game.js';
 import { topScores, submitScore, dbReady } from './db.js';
 
 // 1. Конфігурація Supabase
@@ -13,12 +13,11 @@ const playerId = 'player_' + Math.random().toString(36).substr(2, 9);
 
 let currentRoom = null;
 let roomChannel = null;
-let isPlayingWithBot = false;
+export let isPlayingWithBot = false;
 let botInstance = null;
 let pollInterval = null;
 let botTimeout = null;
 
-// Об'єкт супротивника з параметрами анімації
 export const enemy = {
   x: 200,
   y: 200,
@@ -30,7 +29,7 @@ export const enemy = {
   moving: false
 };
 
-// 2. Клас Бота з анімацією та оминанням стін
+// 2. Клас Бота з використанням Бомб
 class Bot {
   constructor(x = 200, y = 200) {
     this.x = x;
@@ -42,6 +41,8 @@ class Bot {
     this.dir = 0;
     this.frame = 0;
     this.frameTimer = 0;
+    this.usedBombs = 0;
+    this.bombCooldown = 0;
   }
 
   hasLineOfSight(target, boxHitsWallFn) {
@@ -54,8 +55,10 @@ class Bot {
     return true;
   }
 
-  update(pickupsList, boxHitsWallFn, dt = 0.016) {
+  update(pickupsList, boxHitsWallFn, playerObj, dt = 0.016) {
     if (!pickupsList || pickupsList.length === 0) return;
+
+    if (this.bombCooldown > 0) this.bombCooldown -= dt;
 
     let target = null;
     let minDist = Infinity;
@@ -80,6 +83,12 @@ class Bot {
     }
 
     if (!target) return;
+
+    // Автоматичне ставлення бомби ботом біля скупчення або гравця
+    if (minDist < 30 && this.bombCooldown <= 0) {
+      placeBomb(this.x, this.y, this);
+      this.bombCooldown = 4.0; // Таймаут для бота на наступну бомбу
+    }
 
     const oldX = this.x;
     const oldY = this.y;
@@ -118,7 +127,6 @@ class Bot {
       }
     }
 
-    // Анімація спрайту бота
     const movedX = this.x - oldX;
     const movedY = this.y - oldY;
     const isMoving = Math.abs(movedX) > 0.05 || Math.abs(movedY) > 0.05;
@@ -141,7 +149,6 @@ class Bot {
       this.frame = 0;
     }
 
-    // Синхронізація для малювання
     enemy.x = this.x;
     enemy.y = this.y;
     enemy.dir = this.dir;
@@ -150,9 +157,9 @@ class Bot {
   }
 }
 
-export function tickBot(pickupsList, boxHitsWallFn, dt) {
+export function tickBot(pickupsList, boxHitsWallFn, playerObj, dt) {
   if (isPlayingWithBot && botInstance) {
-    botInstance.update(pickupsList, boxHitsWallFn, dt);
+    botInstance.update(pickupsList, boxHitsWallFn, playerObj, dt);
   }
 }
 

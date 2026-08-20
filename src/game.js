@@ -1,14 +1,17 @@
 import { GAME } from './config.js';
 import { TUNING } from './tuning.js';
-import { enemy, sendMyMovement, tickBot } from './main.js';
+import { enemy, sendMyMovement, tickBot, isPlayingWithBot } from './main.js';
 
 const T = TUNING;
 const TILE = T.field.tile;
 
 // ── Інпут ─────────────────────────────────────────────────────────────
 const keys = new Set();
+let spacePressed = false;
+
 addEventListener('keydown', (e) => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
+  if (e.key === ' ' && !e.repeat) spacePressed = true;
   keys.add(e.key.toLowerCase());
 });
 addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
@@ -84,9 +87,12 @@ const player = {
   w: T.player.size, h: T.player.size,
   speed: T.player.speed,
   dir: 0, frame: 0, frameTimer: 0, moving: false,
+  usedBombs: 0
 };
 
 const pickups = [];
+const bombs = []; // Масив усіх активних бомб
+
 function spawnPickup() {
   const s = T.pickups.size;
   for (let tries = 0; tries < 200; tries++) {
@@ -101,6 +107,22 @@ function spawnPickup() {
 for (let i = 0; i < T.pickups.count; i++) spawnPickup();
 
 const state = { score: 0, time: 0, running: true };
+
+// Функція ставить бомбу
+export function placeBomb(ownerX, ownerY, ownerObj) {
+  const available = Math.floor(state.score / 25) - ownerObj.usedBombs;
+  if (available > 0) {
+    ownerObj.usedBombs++;
+    bombs.push({
+      x: ownerX + T.player.size / 2 - 8,
+      y: ownerY + T.player.size / 2 - 8,
+      w: 16,
+      h: 16,
+      timer: 3.0, // 3 секунди до вибуху
+      radius: 60
+    });
+  }
+}
 
 // ── Оновлення ─────────────────────────────────────────────────────────
 function update(dt) {
@@ -124,11 +146,18 @@ function update(dt) {
   moveAxis(player, dx * player.speed * dt, 0);
   moveAxis(player, 0, dy * player.speed * dt);
 
+  // Спроба поставити бомбу на Пробіл
+  if (spacePressed) {
+    placeBomb(player.x, player.y, player);
+    spacePressed = false;
+  }
+
   if (player.moving) {
     sendMyMovement(player.x, player.y, player.dir, player.frame);
   }
 
-  tickBot(pickups, boxHitsWall, dt);
+  // Передаємо стан у бота
+  tickBot(pickups, boxHitsWall, player, dt);
 
   if (player.moving) {
     player.frameTimer += dt;
@@ -140,6 +169,25 @@ function update(dt) {
     player.frame = 0;
   }
 
+  // Логіка Бомб
+  for (let i = bombs.length - 1; i >= 0; i--) {
+    const b = bombs[i];
+    b.timer -= dt;
+
+    if (b.timer <= 0) {
+      // ВИБУХ: знищуємо монетки в радіусі
+      for (let j = pickups.length - 1; j >= 0; j--) {
+        const p = pickups[j];
+        if (Math.hypot(p.x - b.x, p.y - b.y) <= b.radius) {
+          pickups.splice(j, 1);
+          spawnPickup();
+        }
+      }
+      bombs.splice(i, 1);
+    }
+  }
+
+  // Монетки
   for (let i = pickups.length - 1; i >= 0; i--) {
     const p = pickups[i];
     p.t += dt;
@@ -186,23 +234,33 @@ function render(ctx) {
     }
   }
 
+  // Малювання Бомб
+  for (const b of bombs) {
+    const blink = Math.sin(b.timer * 15) > 0;
+    ctx.fillStyle = blink ? '#ff0000' : '#222222';
+    ctx.beginPath();
+    ctx.arc(b.x + b.w / 2, b.y + b.h / 2, 8, 0, Math.PI * 2);
+    ctx.fill();
+    // Ґніт
+    ctx.fillStyle = '#ffaa00';
+    ctx.fillRect(b.x + b.w / 2 - 1, b.y - 3, 2, 4);
+  }
+
+  // Монетки
   for (const p of pickups) {
     const bob = Math.sin(p.t * T.pickups.bobSpeed) * T.pickups.bobHeight;
     ctx.fillStyle = T.colors.pickup;
     ctx.fillRect(p.x, p.y + bob, p.w, p.h);
   }
 
-  // 1. Гравець
+  // Гравець
   const drew = heroSheet.draw(ctx, player.frame, player.dir, player.x, player.y, player.w, player.h);
   if (!drew) {
     ctx.fillStyle = T.colors.player;
     ctx.fillRect(Math.round(player.x), Math.round(player.y), player.w, player.h);
-    ctx.fillStyle = T.colors.playerEyes;
-    ctx.fillRect(Math.round(player.x) + 3, Math.round(player.y) + 3, 3, 3);
-    ctx.fillRect(Math.round(player.x) + 9, Math.round(player.y) + 3, 3, 3);
   }
 
-  // 2. Бот / Суперник (використовує той самий heroSheet)
+  // Суперник / Бот
   if (enemy) {
     const drewEnemy = heroSheet.draw(
       ctx,
@@ -217,11 +275,14 @@ function render(ctx) {
     if (!drewEnemy) {
       ctx.fillStyle = T.colors.enemy || '#ff595e';
       ctx.fillRect(Math.round(enemy.x), Math.round(enemy.y), enemy.w || T.player.size, enemy.h || T.player.size);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(Math.round(enemy.x) + 3, Math.round(enemy.y) + 3, 3, 3);
-      ctx.fillRect(Math.round(enemy.x) + 9, Math.round(enemy.y) + 3, 3, 3);
     }
   }
+
+  // Відображення доступних бомб на екрані
+  const availableBombs = Math.max(0, Math.floor(state.score / 25) - player.usedBombs);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '12px monospace';
+  ctx.fillText(`Бомби [Space]: ${availableBombs}`, 10, 20);
 }
 
 // ── Цикл з фіксованим кроком ──────────────────────────────────────────
@@ -231,7 +292,9 @@ export function getState() { return state; }
 export function resetGame() {
   state.score = 0; state.time = 0; state.running = true;
   player.x = TILE * 2; player.y = TILE * 2;
+  player.usedBombs = 0;
   pickups.length = 0;
+  bombs.length = 0;
   for (let i = 0; i < T.pickups.count; i++) spawnPickup();
   onScoreChange?.(0);
 }

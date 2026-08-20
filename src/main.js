@@ -24,23 +24,53 @@ export const enemy = {
   size: TUNING.player.size
 };
 
-// 2. Клас Бота
+// 2. Інтелектуальний клас Бота
 class Bot {
   constructor(x = 200, y = 200) {
     this.x = x;
     this.y = y;
-    this.speed = 150;
+    this.w = TUNING.player.size;
+    this.h = TUNING.player.size;
+    this.speed = 135;
   }
 
-  update(targetX, targetY, dt = 0.016) {
-    const step = this.speed * dt;
-    if (this.x < targetX) this.x += step;
-    if (this.x > targetX) this.x -= step;
-    if (this.y < targetY) this.y += step;
-    if (this.y > targetY) this.y -= step;
+  update(pickupsList, moveAxisFn, dt = 0.016) {
+    if (!pickupsList || pickupsList.length === 0) return;
+
+    // Шукаємо найближчу монетку
+    let target = null;
+    let minDist = Infinity;
+    for (const p of pickupsList) {
+      const d = Math.hypot(p.x - this.x, p.y - this.y);
+      if (d < minDist) {
+        minDist = d;
+        target = p;
+      }
+    }
+
+    if (!target) return;
+
+    let dx = target.x - this.x;
+    let dy = target.y - this.y;
+    const dist = Math.hypot(dx, dy);
+
+    if (dist > 2) {
+      dx = (dx / dist) * this.speed * dt;
+      dy = (dy / dist) * this.speed * dt;
+
+      // Рух по вісях з перевіркою стін
+      moveAxisFn(this, dx, 0);
+      moveAxisFn(this, 0, dy);
+    }
 
     enemy.x = this.x;
     enemy.y = this.y;
+  }
+}
+
+export function tickBot(pickupsList, moveAxisFn, dt) {
+  if (isPlayingWithBot && botInstance) {
+    botInstance.update(pickupsList, moveAxisFn, dt);
   }
 }
 

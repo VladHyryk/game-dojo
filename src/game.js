@@ -45,7 +45,7 @@ function boxHitsWall(x, y, w, h) {
   return false;
 }
 
-function moveAxis(entity, dx, dy) {
+export function moveAxis(entity, dx, dy) {
   const nx = entity.x + dx;
   const ny = entity.y + dy;
   if (boxHitsWall(nx, ny, entity.w, entity.h)) return false;
@@ -129,9 +129,8 @@ function update(dt) {
     sendMyMovement(player.x, player.y);
   }
 
-  // Оновлюємо бота (рухається до першої збиранки або гравця)
-  const target = pickups[0] || player;
-  tickBot(target.x, target.y, dt);
+  // Оновлюємо бота з передачею монеток та функції руху із колізіями
+  tickBot(pickups, moveAxis, dt);
 
   if (player.moving) {
     player.frameTimer += dt;
@@ -143,17 +142,35 @@ function update(dt) {
     player.frame = 0;
   }
 
+  // Обробка колізій з монетками
   for (let i = pickups.length - 1; i >= 0; i--) {
     const p = pickups[i];
     p.t += dt;
-    const hit =
+
+    // 1. Гравець збирає монетку
+    const hitPlayer =
       player.x < p.x + p.w && player.x + player.w > p.x &&
       player.y < p.y + p.h && player.y + player.h > p.y;
-    if (hit) {
+
+    if (hitPlayer) {
       pickups.splice(i, 1);
       state.score += T.pickups.scoreValue;
       spawnPickup();
       onScoreChange?.(state.score);
+      continue;
+    }
+
+    // 2. Бот / Суперник збирає монетку
+    if (enemy) {
+      const eSize = enemy.size || T.player.size;
+      const hitEnemy =
+        enemy.x < p.x + p.w && enemy.x + eSize > p.x &&
+        enemy.y < p.y + p.h && enemy.y + eSize > p.y;
+
+      if (hitEnemy) {
+        pickups.splice(i, 1);
+        spawnPickup();
+      }
     }
   }
 }
@@ -193,7 +210,6 @@ function render(ctx) {
   if (enemy) {
     ctx.fillStyle = T.colors.enemy || '#ff595e';
     ctx.fillRect(Math.round(enemy.x), Math.round(enemy.y), enemy.size || T.player.size, enemy.size || T.player.size);
-    // Очі суперника
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(Math.round(enemy.x) + 3, Math.round(enemy.y) + 3, 3, 3);
     ctx.fillRect(Math.round(enemy.x) + 9, Math.round(enemy.y) + 3, 3, 3);

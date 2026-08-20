@@ -24,7 +24,7 @@ export const enemy = {
   size: TUNING.player.size
 };
 
-// 2. Розумний Клас Бота з алгоритмом обходу перешкод
+// 2. Клас Бота з перевіркою прямої видимості (Raycasting) та оминанням кутів
 class Bot {
   constructor(x = 200, y = 200) {
     this.x = x;
@@ -32,21 +32,46 @@ class Bot {
     this.w = TUNING.player.size;
     this.h = TUNING.player.size;
     this.speed = 135;
-    this.stuckTimer = 0;
-    this.avoidDir = 1; // 1 або -1 для вибору напрямку обходу
+    this.avoidDir = 1;
+  }
+
+  // Перевіряє, чи є перешкоди на прямій лінії між ботом і монеткою
+  hasLineOfSight(target, boxHitsWallFn) {
+    const steps = 10;
+    for (let i = 1; i <= steps; i++) {
+      const checkX = this.x + (target.x - this.x) * (i / steps);
+      const checkY = this.y + (target.y - this.y) * (i / steps);
+      if (boxHitsWallFn(checkX, checkY, this.w, this.h)) {
+        return false; // На шляху стіна!
+      }
+    }
+    return true; // Шлях чистий
   }
 
   update(pickupsList, boxHitsWallFn, dt = 0.016) {
     if (!pickupsList || pickupsList.length === 0) return;
 
-    // 1. Знаходимо найближчу монетку
+    // 1. Спочатку шукаємо найближчу монетку, до якої Є ПРЯМИЙ ШЛЯХ
     let target = null;
     let minDist = Infinity;
+
     for (const p of pickupsList) {
       const d = Math.hypot(p.x - this.x, p.y - this.y);
-      if (d < minDist) {
+      if (d < minDist && this.hasLineOfSight(p, boxHitsWallFn)) {
         minDist = d;
         target = p;
+      }
+    }
+
+    // 2. Якщо всі монетки закриті стінами — беремо просто найближчу
+    if (!target) {
+      minDist = Infinity;
+      for (const p of pickupsList) {
+        const d = Math.hypot(p.x - this.x, p.y - this.y);
+        if (d < minDist) {
+          minDist = d;
+          target = p;
+        }
       }
     }
 
@@ -57,30 +82,28 @@ class Bot {
     const dist = Math.hypot(dx, dy);
 
     if (dist > 2) {
-      let stepX = (dx / dist) * this.speed * dt;
-      let stepY = (dy / dist) * this.speed * dt;
+      const stepX = (dx / dist) * this.speed * dt;
+      const stepY = (dy / dist) * this.speed * dt;
 
-      // Спроба звичайного руху
-      const canMoveX = !boxHitsWallFn(this.x + stepX, this.y, this.w, this.h);
-      const canMoveY = !boxHitsWallFn(this.x, this.y + stepY, this.w, this.h);
+      const canX = !boxHitsWallFn(this.x + stepX, this.y, this.w, this.h);
+      const canY = !boxHitsWallFn(this.x, this.y + stepY, this.w, this.h);
 
-      if (canMoveX) {
+      if (canX) {
         this.x += stepX;
       } else {
-        // БОТ ВПЕРСЯ ПО X! Робимо обхід по Y (вгору або вниз)
+        // Якщо заблоковано по X — соваємось по Y, щоб вийти з кута
         const detourY = this.speed * dt * this.avoidDir;
         if (!boxHitsWallFn(this.x, this.y + detourY, this.w, this.h)) {
           this.y += detourY;
         } else {
-          // Якщо і там стіна — змінюємо напрямок обходу на протилежний
           this.avoidDir *= -1;
         }
       }
 
-      if (canMoveY) {
+      if (canY) {
         this.y += stepY;
       } else {
-        // БОТ ВПЕРСЯ ПО Y! Робимо обхід по X (ліворуч або праворуч)
+        // Якщо заблоковано по Y — соваємось по X, щоб вийти з кута
         const detourX = this.speed * dt * this.avoidDir;
         if (!boxHitsWallFn(this.x + detourX, this.y, this.w, this.h)) {
           this.x += detourX;
@@ -92,12 +115,6 @@ class Bot {
 
     enemy.x = this.x;
     enemy.y = this.y;
-  }
-}
-
-export function tickBot(pickupsList, boxHitsWallFn, dt) {
-  if (isPlayingWithBot && botInstance) {
-    botInstance.update(pickupsList, boxHitsWallFn, dt);
   }
 }
 

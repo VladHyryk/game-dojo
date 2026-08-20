@@ -22,7 +22,7 @@ export const enemy = {
   size: TUNING.player.size
 };
 
-// 2. Клас Бота для PVE режиму
+// 2. Клас Бота
 class Bot {
   constructor(x = 200, y = 200) {
     this.x = x;
@@ -42,10 +42,10 @@ class Bot {
   }
 }
 
-// 3. Метчмейкінг з 30-секундним очікуванням через БД
+// 3. Метчмейкінг з 30-секундним очікуванням
 async function findMatch() {
   const statusEl = document.getElementById('status');
-  if (statusEl) statusEl.textContent = 'Шукаємо суперника (до 30 сек)...';
+  if (statusEl) statusEl.textContent = 'Шукаємо суперника (30 сек)...';
 
   clearTimeout(window.botTimer);
   if (window.checkInterval) clearInterval(window.checkInterval);
@@ -54,27 +54,26 @@ async function findMatch() {
   currentRoom = null;
   isPlayingWithBot = false;
 
-  try {
-    // 1. Очищаємо всі записи в черзі, які старші за 30 секунд
-    const thirtySecAgo = new Date(Date.now() - 30000).toISOString();
-    await supabase
-      .from('matchmaking_queue')
-      .update({ status: 'expired' })
-      .eq('status', 'waiting')
-      .lt('created_at', thirtySecAgo);
+  console.log("🚀 [MATCHMAKING] Початок пошуку для:", playerId);
 
-    // 2. Перевіряємо, чи є вже ХТОСЬ активний у черзі
-    const { data: waitingPlayer } = await supabase
+  try {
+    // 1. Шукаємо гравця, який зараз чекає
+    const { data: waitingPlayers, error: searchErr } = await supabase
       .from('matchmaking_queue')
       .select('*')
       .eq('status', 'waiting')
       .neq('player_id', playerId)
       .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
+      .limit(1);
+
+    if (searchErr) {
+      console.warn("⚠️ Помилка пошуку в БД:", searchErr.message);
+    }
+
+    const waitingPlayer = waitingPlayers && waitingPlayers.length > 0 ? waitingPlayers[0] : null;
 
     if (waitingPlayer) {
-      console.log("Знайдено суперника, який чекає у черзі!", waitingPlayer);
+      console.log("✅ [MATCHMAKING] Знайдено гравця у черзі!", waitingPlayer);
       const roomId = `room_${waitingPlayer.id}`;
       
       await supabase
@@ -86,20 +85,24 @@ async function findMatch() {
       return;
     }
 
-    // 3. Якщо нікого немає — додаємо СЕБЕ в чергу
-    const { data: myEntry, error } = await supabase
+    // 2. Додаємо себе в чергу
+    console.log("⏳ [MATCHMAKING] Нікого немає. Стаємо в чергу...");
+    const { data: inserted, error: insertErr } = await supabase
       .from('matchmaking_queue')
       .insert([{ player_id: playerId, status: 'waiting' }])
-      .select()
-      .single();
+      .select();
 
-    if (error) {
-      console.error("Помилка бази даних:", error);
-      startPVEBotGame();
+    if (insertErr || !inserted || inserted.length === 0) {
+      console.error("❌ Помилка запису в чергу БД:", insertErr);
+      // Якщо БД недоступна — чекаємо та запускаємо бота
+      window.botTimer = setTimeout(() => startPVEBotGame(), 5000);
       return;
     }
 
-    // 4. Підписуємося на Realtime оновлення нашого запису
+    const myEntry = inserted[0];
+    console.log("📝 [MATCHMAKING] Успішно записано в чергу з ID:", myEntry.id);
+
+    // 3. Слухаємо оновлення в БД
     const queueChannel = supabase
       .channel(`queue_${myEntry.id}`)
       .on('postgres_changes', {
@@ -108,6 +111,7 @@ async function findMatch() {
         table: 'matchmaking_queue',
         filter: `id=eq.${myEntry.id}`
       }, (payload) => {
+        console.log("🔔 [MATCHMAKING] Отримано оновлення статусу:", payload);
         if (payload.new.status === 'matched') {
           supabase.removeChannel(queueChannel);
           clearTimeout(window.botTimer);
@@ -117,24 +121,25 @@ async function findMatch() {
       })
       .subscribe();
 
-    // Додатковий резервний перевіряльник (Polling) кожні 2.5 секунди
+    // Резервна перевірка щосекунди
     window.checkInterval = setInterval(async () => {
-      const { data: check } = await supabase
+      const { data: checkData } = await supabase
         .from('matchmaking_queue')
         .select('status, room_id')
-        .eq('id', myEntry.id)
-        .single();
+        .eq('id', myEntry.id);
 
-      if (check && check.status === 'matched') {
+      if (checkData && checkData.length > 0 && checkData[0].status === 'matched') {
+        console.log("✅ [MATCHMAKING] Знайдено матч через перевірку!");
         clearInterval(window.checkInterval);
         supabase.removeChannel(queueChannel);
         clearTimeout(window.botTimer);
-        startPVPGame(check.room_id, 'player1');
+        startPVPGame(checkData[0].room_id, 'player1');
       }
-    }, 2500);
+    }, 1500);
 
-    // 5. ТАЙМАУТ 30 СЕКУНД: якщо за 30 сек пари немає — запускаємо БОТА
+    // 4. ТАЙМАУТ 30 СЕКУНД (запуск бота тільки після завершення часу)
     window.botTimer = setTimeout(async () => {
+      console.log("⏰ [MATCHMAKING] 30 секунд минуло. Запуск бота.");
       if (window.checkInterval) clearInterval(window.checkInterval);
       supabase.removeChannel(queueChannel);
       
@@ -149,8 +154,8 @@ async function findMatch() {
     }, 30000);
 
   } catch (err) {
-    console.error("Помилка метчмейкінгу:", err);
-    startPVEBotGame();
+    console.error("💥 Критична помилка метчмейкінгу:", err);
+    window.botTimer = setTimeout(() => startPVEBotGame(), 5000);
   }
 }
 

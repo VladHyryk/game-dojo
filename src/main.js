@@ -15,8 +15,8 @@ let currentRoom = null;
 let roomChannel = null;
 let isPlayingWithBot = false;
 let botInstance = null;
-let matchTimeout = null;
-let pingInterval = null;
+let pollInterval = null;
+let botTimeout = null;
 
 export const enemy = {
   x: 200,
@@ -44,72 +44,99 @@ class Bot {
   }
 }
 
-// 3. Глобальний канал для миттєвого виявлення суперника
-const globalLobby = supabase.channel('global_lobby');
-
-globalLobby
-  .on('broadcast', { event: 'ping_search' }, (payload) => {
-    // Якщо хтось шукає і ми самі шукаємо (не в грі)
-    if (payload.sender !== playerId && !currentRoom && !isPlayingWithBot) {
-      console.log("⚡ Знайдено суперника через Broadcast!", payload.sender);
-      const roomId = `room_${payload.sender}_${playerId}`;
-
-      // Повідомляємо його, що ми приймаємо бій
-      globalLobby.send({
-        type: 'broadcast',
-        event: 'match_accept',
-        payload: { target: payload.sender, peer: playerId, roomId }
-      });
-
-      startPVPGame(roomId, 'player2');
-    }
-  })
-  .on('broadcast', { event: 'match_accept' }, (payload) => {
-    if (payload.target === playerId && !currentRoom) {
-      console.log("⚡ Суперник підтвердив матч!");
-      startPVPGame(payload.roomId, 'player1');
-    }
-  })
-  .subscribe();
-
-// 4. Функція Пошуку (30 секунд)
+// 3. Метчмейкінг на чистих DB запитах (без збоїв WebSockets)
 async function findMatch() {
   const statusEl = document.getElementById('status');
-  if (statusEl) statusEl.textContent = 'Шукаємо суперника (до 30 сек)...';
+  if (statusEl) statusEl.textContent = 'Шукаємо суперника (30 сек)...';
 
-  // Очищення попередніх станiв
-  if (matchTimeout) clearTimeout(matchTimeout);
-  if (pingInterval) clearInterval(pingInterval);
+  if (pollInterval) clearInterval(pollInterval);
+  if (botTimeout) clearTimeout(botTimeout);
   if (roomChannel) supabase.removeChannel(roomChannel);
 
   currentRoom = null;
   isPlayingWithBot = false;
 
-  console.log("🚀 [MATCHMAKING] Запуск шукача. ID:", playerId);
+  console.log("🚀 Початок пошуку суперника для:", playerId);
 
-  // 1. Щосекунди шлемо сигнал у мережу
-  pingInterval = setInterval(() => {
-    if (!currentRoom && !isPlayingWithBot) {
-      globalLobby.send({
-        type: 'broadcast',
-        event: 'ping_search',
-        payload: { sender: playerId }
-      });
+  try {
+    // 1. Шукаємо гравця, який вже чекає в черзі
+    const { data: waitingPlayers } = await supabase
+      .from('matchmaking_queue')
+      .select('*')
+      .eq('status', 'waiting')
+      .neq('player_id', playerId)
+      .order('created_at', { ascending: true })
+      .limit(1);
+
+    if (waitingPlayers && waitingPlayers.length > 0) {
+      const waitingPlayer = waitingPlayers[0];
+      const roomId = `room_${waitingPlayer.id}`;
+
+      console.log("✅ Знайдено гравця! Створюємо кімнату:", roomId);
+
+      await supabase
+        .from('matchmaking_queue')
+        .update({ status: 'matched', room_id: roomId })
+        .eq('id', waitingPlayer.id);
+
+      startPVPGame(roomId, 'player2');
+      return;
     }
-  }, 1200);
 
-  // 2. Встановити таймер 30 секунд для бота
-  matchTimeout = setTimeout(() => {
-    if (pingInterval) clearInterval(pingInterval);
-    if (!currentRoom) {
-      console.log("⏰ 30 секунд минуло. Перехід до бота.");
+    // 2. Якщо нікого немає — додаємо СЕБЕ в чергу
+    const { data: myEntry, error } = await supabase
+      .from('matchmaking_queue')
+      .insert([{ player_id: playerId, status: 'waiting' }])
+      .select()
+      .single();
+
+    if (error || !myEntry) {
+      console.error("Помилка запису в чергу:", error);
       startPVEBotGame();
+      return;
     }
-  }, 30000);
+
+    console.log("⏳ Записано в чергу, чекаємо 30 секунд. My ID:", myEntry.id);
+
+    // 3. Опитання бази даних кожні 1.5 секунди
+    pollInterval = setInterval(async () => {
+      const { data: check } = await supabase
+        .from('matchmaking_queue')
+        .select('status, room_id')
+        .eq('id', myEntry.id)
+        .single();
+
+      if (check && check.status === 'matched') {
+        console.log("⚔️ Суперник підключився до нашої кімнати!");
+        clearInterval(pollInterval);
+        clearTimeout(botTimeout);
+        startPVPGame(check.room_id, 'player1');
+      }
+    }, 1500);
+
+    // 4. ТАЙМАУТ 30 СЕКУНД
+    botTimeout = setTimeout(async () => {
+      console.log("⏰ 30 секунд минуло -> Запуск бота.");
+      clearInterval(pollInterval);
+
+      await supabase
+        .from('matchmaking_queue')
+        .update({ status: 'expired' })
+        .eq('id', myEntry.id);
+
+      if (!currentRoom) {
+        startPVEBotGame();
+      }
+    }, 30000); // 30 секунд
+
+  } catch (err) {
+    console.error("💥 Критична помилка:", err);
+    startPVEBotGame();
+  }
 }
 
 function startPVEBotGame() {
-  if (pingInterval) clearInterval(pingInterval);
+  if (pollInterval) clearInterval(pollInterval);
   const statusEl = document.getElementById('status');
   if (statusEl) statusEl.textContent = '🤖 Гра проти БОТА';
   
@@ -118,8 +145,8 @@ function startPVEBotGame() {
 }
 
 function startPVPGame(roomId, role) {
-  if (pingInterval) clearInterval(pingInterval);
-  if (matchTimeout) clearTimeout(matchTimeout);
+  if (pollInterval) clearInterval(pollInterval);
+  if (botTimeout) clearTimeout(botTimeout);
 
   const statusEl = document.getElementById('status');
   if (statusEl) statusEl.textContent = `⚔️ Гра проти гравця (${role})`;
@@ -129,7 +156,7 @@ function startPVPGame(roomId, role) {
 
   if (roomChannel) supabase.removeChannel(roomChannel);
 
-  // Канал кімнати
+  // Канал для обміну координатами
   roomChannel = supabase.channel(roomId);
   roomChannel
     .on('broadcast', { event: 'move' }, (payload) => {
@@ -157,7 +184,7 @@ export function tickBot(heroX, heroY, dt) {
   }
 }
 
-// 5. Ініціалізація UI
+// 4. Інтерфейс
 const t = TUNING.texts;
 document.title = t.title;
 document.getElementById('title').textContent = t.title;

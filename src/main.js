@@ -167,6 +167,19 @@ export function tickBot(pickupsList, boxHitsWallFn, playerObj, dt) {
   }
 }
 
+// Функція для примусового респавну екземпляра бота
+export function respawnBot() {
+  if (botInstance) {
+    botInstance.x = GAME.width - 80;
+    botInstance.y = GAME.height - 80;
+    enemy.x = botInstance.x;
+    enemy.y = botInstance.y;
+  } else {
+    enemy.x = GAME.width - 80;
+    enemy.y = GAME.height - 80;
+  }
+}
+
 // 3. Метчмейкінг на DB запитах
 async function findMatch() {
   const statusEl = document.getElementById('status');

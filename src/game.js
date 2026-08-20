@@ -1,6 +1,6 @@
 import { GAME } from './config.js';
 import { TUNING } from './tuning.js';
-import { enemy, sendMyMovement, tickBot, isPlayingWithBot } from './main.js';
+import { enemy, sendMyMovement, tickBot, isPlayingWithBot, respawnBot } from './main.js';
 
 const T = TUNING;
 const TILE = T.field.tile;
@@ -146,7 +146,7 @@ function update(dt) {
   moveAxis(player, dx * player.speed * dt, 0);
   moveAxis(player, 0, dy * player.speed * dt);
 
-  // Спроба закласти бомбу гравецем
+  // Закладання бомби гравцем
   if (spacePressed) {
     if (placeBomb(player.x, player.y, state.score, player.usedBombs)) {
       player.usedBombs++;
@@ -195,8 +195,7 @@ function update(dt) {
         const enemyDist = Math.hypot((enemy.x + enemyW / 2) - b.x, (enemy.y + enemyH / 2) - b.y);
 
         if (enemyDist <= b.radius) {
-          enemy.x = GAME.width - 80;
-          enemy.y = GAME.height - 80;
+          respawnBot(); // <--- Виклик примусового респавну бота
           if (enemy.score !== undefined) {
             enemy.score = Math.max(0, enemy.score - 50);
           }

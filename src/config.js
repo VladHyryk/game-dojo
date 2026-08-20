@@ -3,8 +3,8 @@
 // Захист бази роблять RLS-політики (schema.sql), а не секретність ключа.
 // sb_secret_* сюди НЕ клади ніколи.
 
-export const SUPABASE_URL = 'https://tesfdjanxmhxvcwpnsjs.supabase.co';
-export const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable__jCD7IQesadXZtxcA0e1SA_jxDChmzF';
+export const SUPABASE_URL = 'https://syhhamuvbkisaedmqzdfa.supabase.co';
+export const SUPABASE_PUBLISHABLE_KEY = 'hsb_publishable_MgiS3rEYZVXqD0MSPhIYtg_Vf4WdaNm';
 
 export const GAME = {
   width: 960,

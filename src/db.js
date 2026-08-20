@@ -12,7 +12,10 @@ export async function topScores(limit = 10) {
     .order('score', { ascending: false })
     .limit(limit);
 
-  if (error) return [];
+  if (error) {
+    console.error('Помилка лідерборду:', error.message);
+    return [];
+  }
   return data;
 }
 
@@ -24,6 +27,9 @@ export async function submitScore(player, score) {
     .from('scores')
     .insert({ player: name, score: Math.floor(score) });
 
-  if (error) return { ok: false, reason: error.message };
+  if (error) {
+    console.error('Помилка запису очок:', error.message);
+    return { ok: false, reason: error.message };
+  }
   return { ok: true };
 }

@@ -206,13 +206,26 @@ function render(ctx) {
     ctx.fillRect(Math.round(player.x) + 9, Math.round(player.y) + 3, 3, 3);
   }
 
-  // 2. Малювання Супротивника / Бота
+  // 2. Малювання Супротивника / Бота через SpriteSheet
   if (enemy) {
-    ctx.fillStyle = T.colors.enemy || '#ff595e';
-    ctx.fillRect(Math.round(enemy.x), Math.round(enemy.y), enemy.size || T.player.size, enemy.size || T.player.size);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(Math.round(enemy.x) + 3, Math.round(enemy.y) + 3, 3, 3);
-    ctx.fillRect(Math.round(enemy.x) + 9, Math.round(enemy.y) + 3, 3, 3);
+    const drewEnemy = heroSheet.draw(
+      ctx,
+      enemy.frame || 0,
+      enemy.dir || 0,
+      enemy.x,
+      enemy.y,
+      enemy.w || T.player.size,
+      enemy.h || T.player.size
+    );
+
+    // Фолбек (якщо спрайт ще не завантажився)
+    if (!drewEnemy) {
+      ctx.fillStyle = T.colors.enemy || '#ff595e';
+      ctx.fillRect(Math.round(enemy.x), Math.round(enemy.y), enemy.size || T.player.size, enemy.size || T.player.size);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(Math.round(enemy.x) + 3, Math.round(enemy.y) + 3, 3, 3);
+      ctx.fillRect(Math.round(enemy.x) + 9, Math.round(enemy.y) + 3, 3, 3);
+    }
   }
 }
 

@@ -21,10 +21,15 @@ let botTimeout = null;
 export const enemy = {
   x: 200,
   y: 200,
+  w: TUNING.player.size,
+  h: TUNING.player.size,
+  dir: 0,
+  frame: 0,
+  frameTimer: 0,
+  moving: false,
   size: TUNING.player.size
 };
 
-// 2. Клас Бота з перевіркою прямої видимості (Raycasting) та оминанням кутів
 class Bot {
   constructor(x = 200, y = 200) {
     this.x = x;
@@ -33,25 +38,24 @@ class Bot {
     this.h = TUNING.player.size;
     this.speed = 135;
     this.avoidDir = 1;
+    this.dir = 0;
+    this.frame = 0;
+    this.frameTimer = 0;
   }
 
-  // Перевіряє, чи є перешкоди на прямій лінії між ботом і монеткою
   hasLineOfSight(target, boxHitsWallFn) {
     const steps = 10;
     for (let i = 1; i <= steps; i++) {
       const checkX = this.x + (target.x - this.x) * (i / steps);
       const checkY = this.y + (target.y - this.y) * (i / steps);
-      if (boxHitsWallFn(checkX, checkY, this.w, this.h)) {
-        return false; // На шляху стіна!
-      }
+      if (boxHitsWallFn(checkX, checkY, this.w, this.h)) return false;
     }
-    return true; // Шлях чистий
+    return true;
   }
 
   update(pickupsList, boxHitsWallFn, dt = 0.016) {
     if (!pickupsList || pickupsList.length === 0) return;
 
-    // 1. Спочатку шукаємо найближчу монетку, до якої Є ПРЯМИЙ ШЛЯХ
     let target = null;
     let minDist = Infinity;
 
@@ -63,7 +67,6 @@ class Bot {
       }
     }
 
-    // 2. Якщо всі монетки закриті стінами — беремо просто найближчу
     if (!target) {
       minDist = Infinity;
       for (const p of pickupsList) {
@@ -76,6 +79,9 @@ class Bot {
     }
 
     if (!target) return;
+
+    const oldX = this.x;
+    const oldY = this.y;
 
     let dx = target.x - this.x;
     let dy = target.y - this.y;
@@ -91,7 +97,6 @@ class Bot {
       if (canX) {
         this.x += stepX;
       } else {
-        // Якщо заблоковано по X — соваємось по Y, щоб вийти з кута
         const detourY = this.speed * dt * this.avoidDir;
         if (!boxHitsWallFn(this.x, this.y + detourY, this.w, this.h)) {
           this.y += detourY;
@@ -103,7 +108,6 @@ class Bot {
       if (canY) {
         this.y += stepY;
       } else {
-        // Якщо заблоковано по Y — соваємось по X, щоб вийти з кута
         const detourX = this.speed * dt * this.avoidDir;
         if (!boxHitsWallFn(this.x + detourX, this.y, this.w, this.h)) {
           this.x += detourX;
@@ -113,8 +117,35 @@ class Bot {
       }
     }
 
+    // Визначення напрямку та анімації спрайту бота
+    const movedX = this.x - oldX;
+    const movedY = this.y - oldY;
+    const isMoving = Math.abs(movedX) > 0.05 || Math.abs(movedY) > 0.05;
+
+    if (Math.abs(movedX) > Math.abs(movedY)) {
+      if (movedX < 0) this.dir = 1;      // Вліво
+      else if (movedX > 0) this.dir = 2; // Вправо
+    } else if (Math.abs(movedY) > 0.05) {
+      if (movedY < 0) this.dir = 3;      // Вгору
+      else if (movedY > 0) this.dir = 0; // Вниз
+    }
+
+    if (isMoving) {
+      this.frameTimer += dt;
+      if (this.frameTimer > 1 / TUNING.player.animationSpeed) {
+        this.frameTimer = 0;
+        this.frame = (this.frame + 1) % 4;
+      }
+    } else {
+      this.frame = 0;
+    }
+
+    // Синхронізація з глобальним об'єктом enemy
     enemy.x = this.x;
     enemy.y = this.y;
+    enemy.dir = this.dir;
+    enemy.frame = this.frame;
+    enemy.moving = isMoving;
   }
 }
 

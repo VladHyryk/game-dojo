@@ -1,13 +1,7 @@
 import { GAME } from './config.js';
 import { TUNING } from './tuning.js';
 import { start, setScoreListener, getState, resetGame, placeBomb } from './game.js';
-import { topScores, submitScore, dbReady } from './db.js';
-
-// 1. Конфігурація Supabase
-const SUPABASE_URL = "https://syhhamuvbkisaedmqzdfa.supabase.co";
-const SUPABASE_KEY = "sb_publishable_MgiS3rEYZVXqD0MSPhIYtg_Vf4WdaNm"; 
-
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+import { topScores, submitScore, dbReady, supabase } from './db.js'; // Імпортуємо єдиний supabase з db.js
 
 const playerId = 'player_' + Math.random().toString(36).substr(2, 9);
 
@@ -86,7 +80,6 @@ class Bot {
 
     if (!target) return;
 
-    // Авто-бомба бота
     if (minDist < 40 && this.bombCooldown <= 0) {
       if (placeBomb(this.x, this.y, enemy.score, this.usedBombs)) {
         this.usedBombs++;
@@ -167,7 +160,6 @@ export function tickBot(pickupsList, boxHitsWallFn, playerObj, dt) {
   }
 }
 
-// Функція примусового респавну екземпляра бота
 export function respawnBot() {
   if (botInstance) {
     botInstance.x = GAME.width - 80;
@@ -180,7 +172,7 @@ export function respawnBot() {
   }
 }
 
-// 3. Метчмейкінг на DB Polling (надійне з'єднання)
+// 3. Метчмейкінг
 async function findMatch() {
   const statusEl = document.getElementById('status');
   if (statusEl) statusEl.textContent = 'Шукаємо суперника (до 30 сек)...';
@@ -192,15 +184,19 @@ async function findMatch() {
   currentRoom = null;
   isPlayingWithBot = false;
 
+  if (!supabase) {
+    console.error("❌ Supabase не підключено!");
+    startPVEBotGame();
+    return;
+  }
+
   try {
-    // 1. Очищаємо записи, старіші за 30 секунд
     const thirtySecAgo = new Date(Date.now() - 30000).toISOString();
     await supabase
       .from('matchmaking_queue')
       .delete()
       .lt('created_at', thirtySecAgo);
 
-    // 2. Шукаємо будь-кого, хто чекає у черзі (статус 'waiting')
     const { data: waitingList, error: selectErr } = await supabase
       .from('matchmaking_queue')
       .select('*')
@@ -225,7 +221,6 @@ async function findMatch() {
       return;
     }
 
-    // 3. Якщо нікого немає — додаємо СЕБЕ в чергу
     const { data: myEntryArray, error: insertErr } = await supabase
       .from('matchmaking_queue')
       .insert([{ player_id: playerId, status: 'waiting' }])
@@ -240,7 +235,6 @@ async function findMatch() {
     const myEntry = myEntryArray[0];
     console.log("⏳ Записано в чергу з ID:", myEntry.id);
 
-    // 4. Опитання (Polling) щосекунди
     pollInterval = setInterval(async () => {
       const { data: checkArray } = await supabase
         .from('matchmaking_queue')
@@ -258,7 +252,6 @@ async function findMatch() {
       }
     }, 1000);
 
-    // 5. ТАЙМАУТ 30 СЕКУНД (запуск бота)
     botTimeout = setTimeout(async () => {
       console.log("⏰ 30 секунд минуло. Перехід до бота.");
       clearInterval(pollInterval);

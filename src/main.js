@@ -24,7 +24,7 @@ export const enemy = {
   size: TUNING.player.size
 };
 
-// 2. Інтелектуальний клас Бота
+// 2. Розумний Клас Бота з оминанням стін
 class Bot {
   constructor(x = 200, y = 200) {
     this.x = x;
@@ -34,10 +34,10 @@ class Bot {
     this.speed = 135;
   }
 
-  update(pickupsList, moveAxisFn, dt = 0.016) {
+  update(pickupsList, boxHitsWallFn, dt = 0.016) {
     if (!pickupsList || pickupsList.length === 0) return;
 
-    // Шукаємо найближчу монетку
+    // Знаходимо найближчу монетку
     let target = null;
     let minDist = Infinity;
     for (const p of pickupsList) {
@@ -55,12 +55,17 @@ class Bot {
     const dist = Math.hypot(dx, dy);
 
     if (dist > 2) {
-      dx = (dx / dist) * this.speed * dt;
-      dy = (dy / dist) * this.speed * dt;
+      const stepX = (dx / dist) * this.speed * dt;
+      const stepY = (dy / dist) * this.speed * dt;
 
-      // Рух по вісях з перевіркою стін
-      moveAxisFn(this, dx, 0);
-      moveAxisFn(this, 0, dy);
+      // Рух по X з перевіркою стіни
+      if (!boxHitsWallFn(this.x + stepX, this.y, this.w, this.h)) {
+        this.x += stepX;
+      }
+      // Рух по Y з перевіркою стіни
+      if (!boxHitsWallFn(this.x, this.y + stepY, this.w, this.h)) {
+        this.y += stepY;
+      }
     }
 
     enemy.x = this.x;
@@ -68,16 +73,16 @@ class Bot {
   }
 }
 
-export function tickBot(pickupsList, moveAxisFn, dt) {
+export function tickBot(pickupsList, boxHitsWallFn, dt) {
   if (isPlayingWithBot && botInstance) {
-    botInstance.update(pickupsList, moveAxisFn, dt);
+    botInstance.update(pickupsList, boxHitsWallFn, dt);
   }
 }
 
-// 3. Метчмейкінг на чистих DB запитах (без збоїв WebSockets)
+// 3. Метчмейкінг на DB запитах (до 30 секунд)
 async function findMatch() {
   const statusEl = document.getElementById('status');
-  if (statusEl) statusEl.textContent = 'Шукаємо суперника (30 сек)...';
+  if (statusEl) statusEl.textContent = 'Шукаємо суперника (до 30 сек)...';
 
   if (pollInterval) clearInterval(pollInterval);
   if (botTimeout) clearTimeout(botTimeout);
@@ -86,10 +91,7 @@ async function findMatch() {
   currentRoom = null;
   isPlayingWithBot = false;
 
-  console.log("🚀 Початок пошуку суперника для:", playerId);
-
   try {
-    // 1. Шукаємо гравця, який вже чекає в черзі
     const { data: waitingPlayers } = await supabase
       .from('matchmaking_queue')
       .select('*')
@@ -102,8 +104,6 @@ async function findMatch() {
       const waitingPlayer = waitingPlayers[0];
       const roomId = `room_${waitingPlayer.id}`;
 
-      console.log("✅ Знайдено гравця! Створюємо кімнату:", roomId);
-
       await supabase
         .from('matchmaking_queue')
         .update({ status: 'matched', room_id: roomId })
@@ -113,7 +113,6 @@ async function findMatch() {
       return;
     }
 
-    // 2. Якщо нікого немає — додаємо СЕБЕ в чергу
     const { data: myEntry, error } = await supabase
       .from('matchmaking_queue')
       .insert([{ player_id: playerId, status: 'waiting' }])
@@ -121,14 +120,10 @@ async function findMatch() {
       .single();
 
     if (error || !myEntry) {
-      console.error("Помилка запису в чергу:", error);
       startPVEBotGame();
       return;
     }
 
-    console.log("⏳ Записано в чергу, чекаємо 30 секунд. My ID:", myEntry.id);
-
-    // 3. Опитання бази даних кожні 1.5 секунди
     pollInterval = setInterval(async () => {
       const { data: check } = await supabase
         .from('matchmaking_queue')
@@ -137,16 +132,13 @@ async function findMatch() {
         .single();
 
       if (check && check.status === 'matched') {
-        console.log("⚔️ Суперник підключився до нашої кімнати!");
         clearInterval(pollInterval);
         clearTimeout(botTimeout);
         startPVPGame(check.room_id, 'player1');
       }
     }, 1500);
 
-    // 4. ТАЙМАУТ 30 СЕКУНД
     botTimeout = setTimeout(async () => {
-      console.log("⏰ 30 секунд минуло -> Запуск бота.");
       clearInterval(pollInterval);
 
       await supabase
@@ -157,10 +149,9 @@ async function findMatch() {
       if (!currentRoom) {
         startPVEBotGame();
       }
-    }, 30000); // 30 секунд
+    }, 30000);
 
   } catch (err) {
-    console.error("💥 Критична помилка:", err);
     startPVEBotGame();
   }
 }
@@ -186,7 +177,6 @@ function startPVPGame(roomId, role) {
 
   if (roomChannel) supabase.removeChannel(roomChannel);
 
-  // Канал для обміну координатами
   roomChannel = supabase.channel(roomId);
   roomChannel
     .on('broadcast', { event: 'move' }, (payload) => {
@@ -205,12 +195,6 @@ export function sendMyMovement(x, y) {
       event: 'move',
       payload: { sender: playerId, x, y }
     });
-  }
-}
-
-export function tickBot(heroX, heroY, dt) {
-  if (isPlayingWithBot && botInstance) {
-    botInstance.update(heroX, heroY, dt);
   }
 }
 

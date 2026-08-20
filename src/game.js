@@ -45,7 +45,7 @@ function boxHitsWall(x, y, w, h) {
   return false;
 }
 
-export function moveAxis(entity, dx, dy) {
+function moveAxis(entity, dx, dy) {
   const nx = entity.x + dx;
   const ny = entity.y + dy;
   if (boxHitsWall(nx, ny, entity.w, entity.h)) return false;
@@ -124,13 +124,13 @@ function update(dt) {
   moveAxis(player, dx * player.speed * dt, 0);
   moveAxis(player, 0, dy * player.speed * dt);
 
-  // Відправляємо координати 2-му гравцю
+  // Відправляємо свої координати (для PVP)
   if (player.moving) {
     sendMyMovement(player.x, player.y);
   }
 
-  // Оновлюємо бота з передачею монеток та функції руху із колізіями
-  tickBot(pickups, moveAxis, dt);
+  // Передаємо в tickBot інформацію та локальну функцію перевірки колізій boxHitsWall
+  tickBot(pickups, boxHitsWall, dt);
 
   if (player.moving) {
     player.frameTimer += dt;
@@ -142,7 +142,7 @@ function update(dt) {
     player.frame = 0;
   }
 
-  // Обробка колізій з монетками
+  // Обробка колізій з монетками (Гравець і Бот)
   for (let i = pickups.length - 1; i >= 0; i--) {
     const p = pickups[i];
     p.t += dt;

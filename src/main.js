@@ -86,7 +86,7 @@ class Bot {
 
     if (!target) return;
 
-    // Бот може ставити бомбу, якщо поруч гравець або скупчення
+    // Авто-бомба бота
     if (minDist < 40 && this.bombCooldown <= 0) {
       if (placeBomb(this.x, this.y, enemy.score, this.usedBombs)) {
         this.usedBombs++;

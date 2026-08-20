@@ -109,7 +109,7 @@ for (let i = 0; i < T.pickups.count; i++) spawnPickup();
 
 const state = { score: 0, time: 0, running: true };
 
-// Ставимо бомбу точно по центром об'єкта
+// Ставимо бомбу точно по центру об'єкта
 export function placeBomb(ownerX, ownerY, scoreVal, usedBombsCounter) {
   const available = Math.floor(scoreVal / 25) - usedBombsCounter;
   if (available > 0) {
@@ -170,16 +170,40 @@ function update(dt) {
     player.frame = 0;
   }
 
-  // Логіка оновлення бомб
+  // Логіка оновлення бомб і вибухів
   for (let i = bombs.length - 1; i >= 0; i--) {
     const b = bombs[i];
     b.timer -= dt;
 
     if (b.timer <= 0) {
-      // Додаємо анімацію вибуху
+      // 1. Анімація вибуху
       explosions.push({ x: b.x, y: b.y, radius: b.radius, timer: 0.3 });
 
-      // Вибух знищує монети
+      // 2. Ураження ГРАВЦЯ (Респавн + Штраф)
+      const playerDist = Math.hypot((player.x + player.w / 2) - b.x, (player.y + player.h / 2) - b.y);
+      if (playerDist <= b.radius) {
+        player.x = TILE * 2;
+        player.y = TILE * 2;
+        state.score = Math.max(0, state.score - 50);
+        onScoreChange?.(state.score);
+      }
+
+      // 3. Ураження БОТА / СУПРОТИВНИКА (Респавн)
+      if (enemy) {
+        const enemyW = enemy.w || T.player.size;
+        const enemyH = enemy.h || T.player.size;
+        const enemyDist = Math.hypot((enemy.x + enemyW / 2) - b.x, (enemy.y + enemyH / 2) - b.y);
+
+        if (enemyDist <= b.radius) {
+          enemy.x = GAME.width - 80;
+          enemy.y = GAME.height - 80;
+          if (enemy.score !== undefined) {
+            enemy.score = Math.max(0, enemy.score - 50);
+          }
+        }
+      }
+
+      // 4. Вибух знищує монетки
       for (let j = pickups.length - 1; j >= 0; j--) {
         const p = pickups[j];
         if (Math.hypot((p.x + p.w / 2) - b.x, (p.y + p.h / 2) - b.y) <= b.radius) {
@@ -187,6 +211,7 @@ function update(dt) {
           spawnPickup();
         }
       }
+
       bombs.splice(i, 1);
     }
   }
